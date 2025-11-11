@@ -106,4 +106,33 @@ class DeviceController extends Controller
 
         return response()->json($device);
     }
+
+    /**
+     * Update device name
+     */
+    public function update(Request $request, $deviceId)
+    {
+        $device = Device::find($deviceId);
+
+        if (!$device) {
+            return response()->json(['error' => 'Device not found'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $device->update([
+            'name' => $request->name,
+        ]);
+
+        return response()->json([
+            'message' => 'Device updated successfully',
+            'device' => $device
+        ], 200);
+    }
 }

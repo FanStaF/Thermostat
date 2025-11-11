@@ -5,8 +5,14 @@
 
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <div>
-            <div class="device-name">{{ $device->name }}</div>
+        <div style="flex: 1;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                <input type="text" id="deviceName" value="{{ $device->name }}"
+                       style="font-size: 20px; font-weight: 600; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; flex: 0 0 300px;">
+                <button class="btn" style="padding: 5px 15px; font-size: 14px;" onclick="updateDeviceName()">
+                    Save Name
+                </button>
+            </div>
             <span class="status {{ $device->is_online ? 'online' : 'offline' }}">
                 {{ $device->is_online ? 'Online' : 'Offline' }}
             </span>
@@ -35,7 +41,15 @@
                 $currentState = $relay->currentState->first();
             @endphp
             <div class="relay-card" data-relay-id="{{ $relay->id }}" data-relay-number="{{ $relay->relay_number }}">
-                <div class="relay-name">{{ $relay->name ?? "Relay {$relay->relay_number}" }}</div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                    <input type="text" id="relayName-{{ $relay->relay_number }}"
+                           value="{{ $relay->name ?? "Relay {$relay->relay_number}" }}"
+                           style="flex: 1; padding: 5px 8px; border: 1px solid #ddd; border-radius: 3px; font-weight: 600;">
+                    <button class="btn" style="padding: 4px 10px; font-size: 11px;"
+                            onclick="updateRelayName({{ $relay->relay_number }})">
+                        Save
+                    </button>
+                </div>
 
                 @if($currentState)
                     <div class="relay-status">
@@ -289,6 +303,60 @@
                 use_fahrenheit: useFahrenheit
             });
         }
+    }
+
+    function updateDeviceName() {
+        const newName = document.getElementById('deviceName').value.trim();
+
+        if (!newName) {
+            showMessage('Device name cannot be empty', true);
+            return;
+        }
+
+        fetch(`/api/devices/${deviceId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify({ name: newName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showMessage('Device name updated successfully!');
+        })
+        .catch(error => {
+            showMessage('Error updating device name: ' + error.message, true);
+        });
+    }
+
+    function updateRelayName(relayNumber) {
+        const newName = document.getElementById(`relayName-${relayNumber}`).value.trim();
+
+        if (!newName) {
+            showMessage('Relay name cannot be empty', true);
+            return;
+        }
+
+        // Find relay ID from the card
+        const card = document.querySelector(`[data-relay-number="${relayNumber}"]`);
+        const relayId = card.dataset.relayId;
+
+        fetch(`/api/devices/${deviceId}/relays/${relayId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify({ name: newName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showMessage('Relay name updated successfully!');
+        })
+        .catch(error => {
+            showMessage('Error updating relay name: ' + error.message, true);
+        });
     }
 </script>
 @endsection

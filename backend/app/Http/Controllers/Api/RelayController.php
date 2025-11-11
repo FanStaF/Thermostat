@@ -104,4 +104,35 @@ class RelayController extends Controller
 
         return response()->json($states);
     }
+
+    /**
+     * Update relay name
+     */
+    public function update(Request $request, $deviceId, $relayId)
+    {
+        $relay = Relay::where('device_id', $deviceId)
+            ->where('id', $relayId)
+            ->first();
+
+        if (!$relay) {
+            return response()->json(['error' => 'Relay not found'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $relay->update([
+            'name' => $request->name,
+        ]);
+
+        return response()->json([
+            'message' => 'Relay updated successfully',
+            'relay' => $relay
+        ], 200);
+    }
 }

@@ -16,6 +16,7 @@ Route::post('/devices/register', [DeviceController::class, 'register']);
 Route::post('/devices/{device}/heartbeat', [DeviceController::class, 'heartbeat']);
 Route::get('/devices', [DeviceController::class, 'index']);
 Route::get('/devices/{device}', [DeviceController::class, 'show']);
+Route::patch('/devices/{device}', [DeviceController::class, 'update']);
 
 // Temperature Readings
 Route::post('/devices/{device}/temperature', [TemperatureController::class, 'store']);
@@ -26,6 +27,7 @@ Route::get('/devices/{device}/temperature/stats', [TemperatureController::class,
 Route::post('/devices/{device}/relay-state', [RelayController::class, 'updateState']);
 Route::get('/devices/{device}/relays', [RelayController::class, 'index']);
 Route::get('/devices/{device}/relays/{relay}/history', [RelayController::class, 'history']);
+Route::patch('/devices/{device}/relays/{relay}', [RelayController::class, 'update']);
 
 // Device Commands
 Route::get('/devices/{device}/commands/pending', [CommandController::class, 'pending']);

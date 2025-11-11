@@ -46,8 +46,14 @@
 </head>
 <body>
     <div class="header">
-        <div class="container">
+        <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
             <h1>{{ config('app.name', 'Thermostat Monitor') }}</h1>
+            <form method="POST" action="{{ route('logout') }}">
+                @csrf
+                <button type="submit" class="btn btn-secondary" style="padding: 8px 16px; font-size: 14px;">
+                    Logout
+                </button>
+            </form>
         </div>
     </div>
 
