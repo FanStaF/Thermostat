@@ -10,6 +10,8 @@ void ApiClient::begin() {
 }
 
 bool ApiClient::registerDevice(const String& hostname, const String& macAddress, const String& ipAddress, const String& firmwareVersion) {
+  logger.addLog("Attempting registration to: " + String(apiUrl));
+
   JsonDocument doc;
   doc["hostname"] = hostname;
   doc["mac_address"] = macAddress;
@@ -18,9 +20,11 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);
+  logger.addLog("Payload: " + jsonPayload);
 
   String response;
   if (makePostRequest("/api/devices/register", jsonPayload, response)) {
+    logger.addLog("Got response: " + response);
     JsonDocument responseDoc;
     DeserializationError error = deserializeJson(responseDoc, response);
 
@@ -28,7 +32,11 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
       deviceId = responseDoc["device_id"];
       logger.addLog("Device registered with ID: " + String(deviceId));
       return true;
+    } else {
+      logger.addLog("JSON parse error or missing device_id");
     }
+  } else {
+    logger.addLog("HTTP request failed");
   }
 
   logger.addLog("Device registration failed");
@@ -179,16 +187,20 @@ bool ApiClient::updateCommandStatus(int commandId, const String& status, const S
 
 bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayload, String& response) {
   if (WiFi.status() != WL_CONNECTED) {
+    logger.addLog("WiFi not connected");
     return false;
   }
 
   HTTPClient http;
   String url = apiUrl + endpoint;
+  logger.addLog("POST to: " + url);
 
   http.begin(wifiClient, url);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "application/json");
 
   int httpCode = http.POST(jsonPayload);
+  logger.addLog("HTTP Code: " + String(httpCode));
 
   if (httpCode > 0) {
     response = http.getString();
@@ -196,6 +208,7 @@ bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayloa
     return (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED);
   }
 
+  logger.addLog("HTTP request error: " + String(httpCode));
   http.end();
   return false;
 }
