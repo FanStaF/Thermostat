@@ -1,0 +1,18 @@
+# WiFi credentials - never commit!
+Credentials.h
+
+# Build artifacts
+*.bin
+*.elf
+*.map
+build/
+
+# Arduino CLI cache
+.arduino/
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
