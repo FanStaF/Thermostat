@@ -1,7 +1,7 @@
 #!/bin/bash
 # Upload script for Thermostat project
 
-SKETCH_PATH="/home/fanstaf/Arduino/Thermostat"
+SKETCH_PATH="/home/fanstaf/Arduino/Thermostat/firmware/Thermostat.ino"
 FQBN="esp8266:esp8266:d1_mini_clone"
 NETWORK_PORT="192.168.1.67"
 
