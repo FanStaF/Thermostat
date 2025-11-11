@@ -113,6 +113,21 @@ void setup() {
   }
   relayController.applyRelayLogic(tempManager.getCurrentTemp());
 
+  // Send initial relay states to Laravel API
+  if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
+    logger.addLog("Sending initial relay states...");
+    for (int i = 0; i < 4; i++) {
+      apiClient.sendRelayState(
+        i + 1,
+        relayController.getRelayState(i),
+        RelayController::modeToString(relayController.getRelayMode(i)),
+        relayController.getTempOn(i),
+        relayController.getTempOff(i),
+        "Relay " + String(i + 1)
+      );
+    }
+  }
+
   logger.addLog("=== SETUP COMPLETE ===");
   logger.addLog("Web: http://" + WiFi.localIP().toString());
 }

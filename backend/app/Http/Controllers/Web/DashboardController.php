@@ -13,9 +13,28 @@ class DashboardController extends Controller
      */
     public function index()
     {
-        $devices = Device::with(['settings', 'relays.currentState'])
+        $devices = Device::with([
+            'settings',
+            'relays.currentState',
+            'temperatureReadings' => function($query) {
+                $query->latest('recorded_at')->limit(1);
+            }
+        ])
             ->withCount('temperatureReadings')
             ->get();
+
+        // Add latest temperature to each device
+        $devices->each(function($device) {
+            $device->latest_temp = $device->temperatureReadings->first();
+
+            // Get temperature trend (last 12 readings for sparkline)
+            $device->temp_trend = $device->temperatureReadings()
+                ->latest('recorded_at')
+                ->limit(12)
+                ->get()
+                ->reverse()
+                ->pluck('temperature');
+        });
 
         return view('dashboard.index', compact('devices'));
     }
