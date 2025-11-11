@@ -8,17 +8,21 @@
 #include "RelayController.h"
 #include "ConfigManager.h"
 #include "WebInterface.h"
+#include "ApiClient.h"
 
 // ---- Global Variables ----
 int updateFrequency = DEFAULT_UPDATE_FREQUENCY;
 bool useFahrenheit = false;
 unsigned long lastTempUpdate = 0;
+unsigned long lastHeartbeat = 0;
+unsigned long lastCommandPoll = 0;
 
 // ---- Module Instances ----
 TemperatureManager tempManager;
 RelayController relayController;
 ConfigManager configManager(relayController);
 WebInterface webInterface(tempManager, relayController, configManager, updateFrequency, useFahrenheit);
+ApiClient apiClient(API_URL);
 
 void setup() {
   Serial.begin(115200);
@@ -73,6 +77,20 @@ void setup() {
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   logger.addLog("NTP time sync started");
 
+  // Initialize API client and register device
+  apiClient.begin();
+  if (WiFi.status() == WL_CONNECTED) {
+    String hostname = WiFi.getHostname();
+    String macAddress = WiFi.macAddress();
+    String ipAddress = WiFi.localIP().toString();
+
+    if (apiClient.registerDevice(hostname, macAddress, ipAddress, FIRMWARE_VERSION)) {
+      logger.addLog("Device registered with Laravel backend");
+    } else {
+      logger.addLog("WARNING: Failed to register with backend");
+    }
+  }
+
   // Setup web server
   webInterface.begin();
 
@@ -103,8 +121,9 @@ void loop() {
   ArduinoOTA.handle();
   webInterface.handleClient();
 
-  // Read temperature periodically
   unsigned long now = millis();
+
+  // Read temperature periodically
   if (now - lastTempUpdate >= (unsigned long)updateFrequency * 1000) {
     lastTempUpdate = now;
 
@@ -115,6 +134,17 @@ void loop() {
       Serial.print("Temp: ");
       Serial.print(newTemp, 1);
       Serial.print("C | Relays: ");
+
+      // Track if any relay states changed
+      bool relayStatesChanged = false;
+      bool previousStates[4];
+      for (int i = 0; i < 4; i++) {
+        previousStates[i] = relayController.getRelayState(i);
+      }
+
+      relayController.applyRelayLogic(newTemp);
+
+      // Print relay states
       for (int i = 0; i < 4; i++) {
         Serial.print(i + 1);
         Serial.print(":");
@@ -122,13 +152,64 @@ void loop() {
         Serial.print("(");
         Serial.print(RelayController::modeToString(relayController.getRelayMode(i)));
         Serial.print(") ");
+
+        if (relayController.getRelayState(i) != previousStates[i]) {
+          relayStatesChanged = true;
+        }
       }
       Serial.println();
-      relayController.applyRelayLogic(newTemp);
+
       tempManager.logTemperature(newTemp, 0);
+
+      // Send temperature to Laravel API
+      if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
+        apiClient.sendTemperatureReading(newTemp, 0);
+
+        // Send relay states if changed
+        if (relayStatesChanged) {
+          for (int i = 0; i < 4; i++) {
+            apiClient.sendRelayState(
+              i + 1,
+              relayController.getRelayState(i),
+              RelayController::modeToString(relayController.getRelayMode(i)),
+              relayController.getTempOn(i),
+              relayController.getTempOff(i),
+              "Relay " + String(i + 1)
+            );
+          }
+        }
+      }
     } else {
       // Failed to read valid temperature, keep using last known good value
       logger.addLog("Using last known temp: " + String(tempManager.getCurrentTemp(), 1) + "C");
+    }
+  }
+
+  // Send heartbeat to API periodically
+  if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
+    if (now - lastHeartbeat >= API_HEARTBEAT_INTERVAL) {
+      lastHeartbeat = now;
+      apiClient.sendHeartbeat();
+    }
+
+    // Poll for pending commands
+    if (now - lastCommandPoll >= API_COMMAND_POLL_INTERVAL) {
+      lastCommandPoll = now;
+      if (apiClient.pollCommands()) {
+        int commandCount = apiClient.getPendingCommandCount();
+        for (int i = 0; i < commandCount; i++) {
+          ApiClient::Command cmd = apiClient.getPendingCommands()[i];
+          logger.addLog("Processing command: " + cmd.type);
+
+          // Acknowledge command immediately
+          apiClient.updateCommandStatus(cmd.id, "acknowledged");
+
+          // Process command based on type
+          // (Command processing would be implemented here)
+          // For now, just mark as completed
+          apiClient.updateCommandStatus(cmd.id, "completed", "Command executed");
+        }
+      }
     }
   }
 
