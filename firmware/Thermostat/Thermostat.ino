@@ -220,9 +220,98 @@ void loop() {
           apiClient.updateCommandStatus(cmd.id, "acknowledged");
 
           // Process command based on type
-          // (Command processing would be implemented here)
-          // For now, just mark as completed
-          apiClient.updateCommandStatus(cmd.id, "completed", "Command executed");
+          bool success = false;
+          String result = "";
+
+          if (cmd.type == "set_relay_mode") {
+            // Parse JSON params
+            JsonDocument paramsDoc;
+            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+
+            if (!error) {
+              int relayNum = paramsDoc["relay_number"];
+              String mode = paramsDoc["mode"].as<String>();
+
+              if (relayNum >= 1 && relayNum <= 4) {
+                Mode newMode = Mode::AUTO;
+                if (mode == "MANUAL_ON") newMode = Mode::MANUAL_ON;
+                else if (mode == "MANUAL_OFF") newMode = Mode::MANUAL_OFF;
+
+                relayController.setRelayMode(relayNum - 1, newMode);
+                relayController.applyRelayLogic(tempManager.getCurrentTemp());
+                configManager.saveSettings(updateFrequency, useFahrenheit);
+
+                success = true;
+                result = "Relay " + String(relayNum) + " mode set to " + mode;
+                logger.addLog(result);
+              }
+            }
+          }
+          else if (cmd.type == "set_thresholds") {
+            JsonDocument paramsDoc;
+            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+
+            if (!error) {
+              int relayNum = paramsDoc["relay_number"];
+              float tempOn = paramsDoc["temp_on"];
+              float tempOff = paramsDoc["temp_off"];
+
+              if (relayNum >= 1 && relayNum <= 4) {
+                relayController.setTempThresholds(relayNum - 1, tempOn, tempOff);
+                relayController.applyRelayLogic(tempManager.getCurrentTemp());
+                configManager.saveSettings(updateFrequency, useFahrenheit);
+
+                success = true;
+                result = "Relay " + String(relayNum) + " thresholds updated";
+                logger.addLog(result);
+              }
+            }
+          }
+          else if (cmd.type == "set_frequency") {
+            JsonDocument paramsDoc;
+            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+
+            if (!error) {
+              int freq = paramsDoc["frequency"];
+              if (freq >= 1 && freq <= 60) {
+                updateFrequency = freq;
+                configManager.saveSettings(updateFrequency, useFahrenheit);
+
+                success = true;
+                result = "Update frequency set to " + String(freq) + "s";
+                logger.addLog(result);
+              }
+            }
+          }
+          else if (cmd.type == "set_unit") {
+            JsonDocument paramsDoc;
+            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+
+            if (!error) {
+              bool useFahr = paramsDoc["use_fahrenheit"];
+              useFahrenheit = useFahr;
+              configManager.saveSettings(updateFrequency, useFahrenheit);
+
+              success = true;
+              result = "Temperature unit set to " + String(useFahr ? "Fahrenheit" : "Celsius");
+              logger.addLog(result);
+            }
+          }
+          else if (cmd.type == "restart") {
+            success = true;
+            result = "Restarting device...";
+            logger.addLog(result);
+            apiClient.updateCommandStatus(cmd.id, "completed", result);
+            delay(1000);
+            ESP.restart();
+          }
+
+          // Mark command as completed or failed
+          if (success) {
+            apiClient.updateCommandStatus(cmd.id, "completed", result);
+          } else {
+            apiClient.updateCommandStatus(cmd.id, "failed", "Command execution failed");
+          }
         }
       }
     }
