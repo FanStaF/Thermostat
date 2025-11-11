@@ -38,6 +38,10 @@
         .chart-container { position: relative; height: 400px; }
         .back-link { display: inline-block; margin-bottom: 20px; color: #3498db; text-decoration: none; font-weight: 500; }
         .back-link:hover { text-decoration: underline; }
+        .mode-btn { padding: 6px 12px; border: 2px solid #3498db; background: white; color: #3498db; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; flex: 1; }
+        .mode-btn:hover { background: #e3f2fd; }
+        .mode-btn.active { background: #3498db; color: white; }
+        .threshold-input { font-size: 14px; }
     </style>
 </head>
 <body>
