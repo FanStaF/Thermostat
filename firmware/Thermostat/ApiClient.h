@@ -35,6 +35,7 @@ public:
 private:
   String apiUrl;
   int deviceId;
+  String authToken;
   WiFiClient wifiClient;
 
   static const int MAX_PENDING_COMMANDS = 10;
@@ -44,6 +45,9 @@ private:
   bool makePostRequest(const String& endpoint, const String& jsonPayload, String& response);
   bool makeGetRequest(const String& endpoint, String& response);
   bool makePutRequest(const String& endpoint, const String& jsonPayload, String& response);
+
+  void loadToken();
+  void saveToken(const String& token);
 };
 
 #endif

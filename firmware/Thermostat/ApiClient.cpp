@@ -1,12 +1,49 @@
 #include "ApiClient.h"
 #include "SystemLogger.h"
+#include "Credentials.h"
+#include <LittleFS.h>
 
 extern SystemLogger logger;
 
-ApiClient::ApiClient(const String& apiUrl) : apiUrl(apiUrl), deviceId(-1), pendingCommandCount(0) {}
+ApiClient::ApiClient(const String& apiUrl) : apiUrl(apiUrl), deviceId(-1), authToken(""), pendingCommandCount(0) {}
 
 void ApiClient::begin() {
+  loadToken();
   logger.addLog("API Client initialized");
+  if (authToken.length() > 0) {
+    logger.addLog("Auth token loaded");
+  }
+}
+
+void ApiClient::loadToken() {
+  if (!LittleFS.begin()) {
+    logger.addLog("Failed to mount LittleFS for token");
+    return;
+  }
+
+  File file = LittleFS.open("/api_token.txt", "r");
+  if (file) {
+    authToken = file.readString();
+    authToken.trim();
+    file.close();
+  }
+}
+
+void ApiClient::saveToken(const String& token) {
+  if (!LittleFS.begin()) {
+    logger.addLog("Failed to mount LittleFS for token save");
+    return;
+  }
+
+  File file = LittleFS.open("/api_token.txt", "w");
+  if (file) {
+    file.print(token);
+    file.close();
+    authToken = token;
+    logger.addLog("Auth token saved");
+  } else {
+    logger.addLog("Failed to save token");
+  }
 }
 
 bool ApiClient::registerDevice(const String& hostname, const String& macAddress, const String& ipAddress, const String& firmwareVersion) {
@@ -22,21 +59,44 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
   serializeJson(doc, jsonPayload);
   logger.addLog("Payload: " + jsonPayload);
 
-  String response;
-  if (makePostRequest("/api/devices/register", jsonPayload, response)) {
+  // Special handling for registration - use API key instead of auth token
+  if (WiFi.status() != WL_CONNECTED) {
+    logger.addLog("WiFi not connected");
+    return false;
+  }
+
+  HTTPClient http;
+  String url = apiUrl + "/api/devices/register";
+  logger.addLog("POST to: " + url);
+
+  http.begin(wifiClient, url);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "application/json");
+  http.addHeader("X-API-Key", API_KEY);
+
+  int httpCode = http.POST(jsonPayload);
+  logger.addLog("HTTP Code: " + String(httpCode));
+
+  if (httpCode > 0 && (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED)) {
+    String response = http.getString();
+    http.end();
+
     logger.addLog("Got response: " + response);
     JsonDocument responseDoc;
     DeserializationError error = deserializeJson(responseDoc, response);
 
-    if (!error && responseDoc.containsKey("device_id")) {
+    if (!error && responseDoc.containsKey("device_id") && responseDoc.containsKey("token")) {
       deviceId = responseDoc["device_id"];
+      String token = responseDoc["token"].as<String>();
+      saveToken(token);
       logger.addLog("Device registered with ID: " + String(deviceId));
       return true;
     } else {
-      logger.addLog("JSON parse error or missing device_id");
+      logger.addLog("JSON parse error or missing device_id/token");
     }
   } else {
-    logger.addLog("HTTP request failed");
+    logger.addLog("HTTP request error: " + String(httpCode));
+    http.end();
   }
 
   logger.addLog("Device registration failed");
@@ -199,6 +259,11 @@ bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayloa
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
 
+  // Add Bearer token for authenticated requests
+  if (authToken.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + authToken);
+  }
+
   int httpCode = http.POST(jsonPayload);
   logger.addLog("HTTP Code: " + String(httpCode));
 
@@ -222,6 +287,12 @@ bool ApiClient::makeGetRequest(const String& endpoint, String& response) {
   String url = apiUrl + endpoint;
 
   http.begin(wifiClient, url);
+  http.addHeader("Accept", "application/json");
+
+  // Add Bearer token for authenticated requests
+  if (authToken.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + authToken);
+  }
 
   int httpCode = http.GET();
 
@@ -245,6 +316,12 @@ bool ApiClient::makePutRequest(const String& endpoint, const String& jsonPayload
 
   http.begin(wifiClient, url);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "application/json");
+
+  // Add Bearer token for authenticated requests
+  if (authToken.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + authToken);
+  }
 
   int httpCode = http.PUT(jsonPayload);
 

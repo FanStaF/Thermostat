@@ -49,8 +49,13 @@ class DeviceController extends Controller
             ]);
         }
 
+        // Revoke old tokens and create new one
+        $device->tokens()->delete();
+        $token = $device->createToken('device-token')->plainTextToken;
+
         return response()->json([
             'device_id' => $device->id,
+            'token' => $token,
             'message' => 'Device registered successfully',
         ], 201);
     }

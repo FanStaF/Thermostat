@@ -56,6 +56,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | API Key
+    |--------------------------------------------------------------------------
+    |
+    | This is the shared API key used for device registration. Devices must
+    | provide this key to register and receive their unique authentication token.
+    |
+    */
+
+    'api_key' => env('API_KEY'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
