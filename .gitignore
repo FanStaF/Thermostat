@@ -1,5 +1,9 @@
+# ========================================
+# Firmware (ESP8266)
+# ========================================
+
 # WiFi credentials - never commit!
-Credentials.h
+firmware/Thermostat/Credentials.h
 
 # Build artifacts
 *.bin
@@ -10,9 +14,52 @@ build/
 # Arduino CLI cache
 .arduino/
 
+# ========================================
+# Backend (Laravel)
+# ========================================
+
+# Laravel
+/backend/vendor/
+/backend/node_modules/
+/backend/.env
+/backend/.env.backup
+/backend/.phpunit.result.cache
+/backend/Homestead.json
+/backend/Homestead.yaml
+/backend/auth.json
+/backend/npm-debug.log
+/backend/yarn-error.log
+/backend/.fleet
+/backend/.idea
+/backend/.vscode
+
+# Laravel storage
+/backend/storage/*.key
+/backend/storage/framework/cache/*
+/backend/storage/framework/sessions/*
+/backend/storage/framework/testing/*
+/backend/storage/framework/views/*
+/backend/storage/logs/*
+!/backend/storage/framework/cache/.gitignore
+!/backend/storage/framework/sessions/.gitignore
+!/backend/storage/framework/testing/.gitignore
+!/backend/storage/framework/views/.gitignore
+!/backend/storage/logs/.gitignore
+
+# Database
+/backend/*.sqlite
+/backend/*.sqlite-journal
+
+# ========================================
+# General
+# ========================================
+
 # Editor files
 .vscode/
 *.swp
 *.swo
 *~
 .DS_Store
+
+# OS files
+Thumbs.db

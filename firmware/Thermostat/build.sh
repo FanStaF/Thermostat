@@ -1,7 +1,8 @@
 #!/bin/bash
 # Build script for Thermostat project
 
-SKETCH_PATH="/home/fanstaf/Arduino/Thermostat"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKETCH_PATH="$SCRIPT_DIR"
 FQBN="esp8266:esp8266:d1_mini_clone"
 
 echo "=== Compiling Thermostat ==="

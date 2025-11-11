@@ -11,6 +11,12 @@ static const int RELAY_PINS[4] = { D1, D5, D6, D7 };
 constexpr int DEFAULT_UPDATE_FREQUENCY = 5; // seconds
 constexpr size_t MAX_SYSTEM_LOGS = 100;
 
+// ---- API Configuration ----
+// API_URL is defined in Credentials.h
+#define FIRMWARE_VERSION "2.0.0"
+constexpr int API_HEARTBEAT_INTERVAL = 60000;  // ms (1 minute)
+constexpr int API_COMMAND_POLL_INTERVAL = 30000;  // ms (30 seconds)
+
 // ---- File Paths ----
 #define CONFIG_FILE "/config.json"
 #define LOG_FILE "/temp_log.csv"
