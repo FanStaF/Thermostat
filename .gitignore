@@ -3,7 +3,7 @@
 # ========================================
 
 # WiFi credentials - never commit!
-firmware/Credentials.h
+firmware/Thermostat/Credentials.h
 
 # Build artifacts
 *.bin
