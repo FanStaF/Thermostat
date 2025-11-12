@@ -20,13 +20,20 @@
                     </div>
 
                     @if($device->latest_temp)
-                        <div style="background: #e3f2fd; padding: 15px; border-radius: 6px; margin-bottom: 15px; text-align: center;">
-                            <div style="font-size: 36px; font-weight: 700; color: #1976d2;">
-                                {{ number_format($device->latest_temp->temperature, 1) }}°C
+                        <div style="background: #e3f2fd; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
+                            <div style="text-align: center;">
+                                <div style="font-size: 36px; font-weight: 700; color: #1976d2;">
+                                    {{ number_format($device->latest_temp->temperature, 1) }}°C
+                                </div>
+                                <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                                    {{ $device->latest_temp->recorded_at->diffForHumans() }}
+                                </div>
                             </div>
-                            <div style="font-size: 12px; color: #666; margin-top: 5px;">
-                                {{ $device->latest_temp->recorded_at->diffForHumans() }}
-                            </div>
+                            @if($device->temp_trend && $device->temp_trend->count() > 1)
+                                <div style="margin-top: 10px; height: 50px;">
+                                    <canvas id="tempChart{{ $device->id }}" style="width: 100%; height: 100%;"></canvas>
+                                </div>
+                            @endif
                         </div>
                     @else
                         <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin-bottom: 15px; text-align: center; color: #999;">
@@ -80,7 +87,51 @@
     </code>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        @foreach($devices as $device)
+            @if($device->temp_trend && $device->temp_trend->count() > 1)
+                const canvas{{ $device->id }} = document.getElementById('tempChart{{ $device->id }}');
+                if (canvas{{ $device->id }}) {
+                    new Chart(canvas{{ $device->id }}, {
+                        type: 'line',
+                        data: {
+                            labels: Array.from({length: {{ $device->temp_trend->count() }}}, (_, i) => i),
+                            datasets: [{
+                                data: {{ $device->temp_trend }},
+                                borderColor: '#1976d2',
+                                backgroundColor: 'rgba(25, 118, 210, 0.1)',
+                                borderWidth: 2,
+                                tension: 0.4,
+                                fill: true,
+                                pointRadius: 0,
+                                pointHoverRadius: 0
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: { enabled: false }
+                            },
+                            scales: {
+                                x: { display: false },
+                                y: {
+                                    display: false,
+                                    beginAtZero: false
+                                }
+                            },
+                            interaction: { mode: null }
+                        }
+                    });
+                }
+            @endif
+        @endforeach
+    });
+
     // Auto-refresh every 15 seconds for live updates
     setInterval(() => {
         window.location.reload();

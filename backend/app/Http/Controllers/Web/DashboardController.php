@@ -42,19 +42,42 @@ class DashboardController extends Controller
     /**
      * Display device detail page with charts and controls
      */
-    public function show($deviceId)
+    public function show(Request $request, $deviceId)
     {
         $device = Device::with([
             'settings',
             'relays.currentState',
         ])->findOrFail($deviceId);
 
-        // Get latest temperature readings for the chart (last 24 hours)
-        $readings = $device->temperatureReadings()
-            ->where('recorded_at', '>=', now()->subDay())
-            ->orderBy('recorded_at', 'asc')
-            ->get();
+        // Get time range from request, default to 24h
+        $range = $request->get('range', '24h');
 
-        return view('dashboard.show', compact('device', 'readings'));
+        // Calculate the start time based on range
+        $query = $device->temperatureReadings();
+
+        switch ($range) {
+            case '1h':
+                $query->where('recorded_at', '>=', now()->subHour());
+                break;
+            case '6h':
+                $query->where('recorded_at', '>=', now()->subHours(6));
+                break;
+            case '24h':
+                $query->where('recorded_at', '>=', now()->subDay());
+                break;
+            case '7d':
+                $query->where('recorded_at', '>=', now()->subDays(7));
+                break;
+            case '30d':
+                $query->where('recorded_at', '>=', now()->subDays(30));
+                break;
+            case 'all':
+                // No time filter - get all readings
+                break;
+        }
+
+        $readings = $query->orderBy('recorded_at', 'asc')->get();
+
+        return view('dashboard.show', compact('device', 'readings', 'range'));
     }
 }

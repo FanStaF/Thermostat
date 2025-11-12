@@ -41,6 +41,9 @@
         .mode-btn:hover { background: #e3f2fd; }
         .mode-btn.active { background: #3498db; color: white; }
         .threshold-input { font-size: 14px; }
+        .range-btn { padding: 5px 12px; border: 1px solid #ddd; background: white; color: #666; border-radius: 4px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+        .range-btn:hover { background: #f8f9fa; border-color: #3498db; color: #3498db; }
+        .range-btn.active { background: #3498db; color: white; border-color: #3498db; }
     </style>
 </head>
 <body>

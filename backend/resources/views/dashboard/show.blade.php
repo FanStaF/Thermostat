@@ -26,9 +26,22 @@
 </div>
 
 <div class="card">
-    <div class="card-title">Temperature History (Last 24 Hours)</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <div class="card-title" style="margin: 0;">Temperature History</div>
+        <div style="display: flex; gap: 5px;">
+            <button class="range-btn {{ $range == '1h' ? 'active' : '' }}" onclick="changeRange('1h')">1H</button>
+            <button class="range-btn {{ $range == '6h' ? 'active' : '' }}" onclick="changeRange('6h')">6H</button>
+            <button class="range-btn {{ $range == '24h' ? 'active' : '' }}" onclick="changeRange('24h')">24H</button>
+            <button class="range-btn {{ $range == '7d' ? 'active' : '' }}" onclick="changeRange('7d')">7D</button>
+            <button class="range-btn {{ $range == '30d' ? 'active' : '' }}" onclick="changeRange('30d')">30D</button>
+            <button class="range-btn {{ $range == 'all' ? 'active' : '' }}" onclick="changeRange('all')">ALL</button>
+        </div>
+    </div>
     <div class="chart-container">
         <canvas id="temperatureChart"></canvas>
+    </div>
+    <div style="margin-top: 10px; text-align: center; font-size: 13px; color: #666;">
+        Showing {{ $readings->count() }} readings
     </div>
 </div>
 
@@ -186,10 +199,27 @@
                     x: {
                         type: 'time',
                         time: {
-                            unit: 'hour',
-                            displayFormats: {
-                                hour: 'MMM d, HH:mm'
-                            }
+                            @if($range == '1h' || $range == '6h')
+                                unit: 'minute',
+                                displayFormats: {
+                                    minute: 'HH:mm'
+                                }
+                            @elseif($range == '24h')
+                                unit: 'hour',
+                                displayFormats: {
+                                    hour: 'HH:mm'
+                                }
+                            @elseif($range == '7d')
+                                unit: 'day',
+                                displayFormats: {
+                                    day: 'MMM d'
+                                }
+                            @else
+                                unit: 'day',
+                                displayFormats: {
+                                    day: 'MMM d, yyyy'
+                                }
+                            @endif
                         },
                         title: {
                             display: true,
@@ -374,6 +404,10 @@
         .catch(error => {
             showMessage('Error updating relay name: ' + error.message, true);
         });
+    }
+
+    function changeRange(range) {
+        window.location.href = `{{ route('dashboard.show', $device->id) }}?range=${range}`;
     }
 </script>
 @endsection
