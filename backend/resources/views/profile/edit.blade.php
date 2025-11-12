@@ -1,6 +1,14 @@
 @extends('layouts.app')
 
 @section('content')
+<style>
+    @media (max-width: 768px) {
+        input[type="text"], input[type="email"], input[type="password"] {
+            font-size: 16px !important; /* Prevents zoom on iOS */
+        }
+    }
+</style>
+
 <div class="card">
     <div class="card-title">Edit Profile</div>
 

@@ -1,16 +1,37 @@
 @extends('layouts.app')
 
 @section('content')
+<style>
+    .device-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .device-name-section { flex: 1; }
+    .device-name-input { font-size: 20px; font-weight: 600; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; flex: 0 0 300px; }
+    .device-info-section { text-align: right; font-size: 14px; color: #666; }
+    .range-buttons { display: flex; gap: 5px; flex-wrap: wrap; }
+
+    @media (max-width: 768px) {
+        .device-header { flex-direction: column; align-items: flex-start; gap: 15px; }
+        .device-name-input { width: 100%; max-width: 100%; flex: 1; font-size: 16px; }
+        .device-info-section { text-align: left; width: 100%; }
+        .range-buttons { width: 100%; justify-content: space-between; }
+        .range-btn { flex: 1; min-width: 0; padding: 5px 8px; font-size: 11px; }
+        table { font-size: 13px; }
+        table th, table td { padding: 8px 4px !important; }
+        input[type="text"], input[type="number"], select {
+            font-size: 16px !important; /* Prevents zoom on iOS */
+        }
+        .chart-container { height: 300px; }
+    }
+</style>
+
 <a href="{{ route('dashboard.index') }}" class="back-link">← Back to Dashboard</a>
 
 <div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <div style="flex: 1;">
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+    <div class="device-header">
+        <div class="device-name-section">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
                 @if(auth()->user()->canControl())
-                    <input type="text" id="deviceName" value="{{ $device->name }}"
-                           style="font-size: 20px; font-weight: 600; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; flex: 0 0 300px;">
-                    <button class="btn" style="padding: 5px 15px; font-size: 14px;" onclick="updateDeviceName()">
+                    <input type="text" id="deviceName" value="{{ $device->name }}" class="device-name-input">
+                    <button class="btn" style="padding: 5px 15px; font-size: 14px; white-space: nowrap;" onclick="updateDeviceName()">
                         Save Name
                     </button>
                 @else
@@ -21,7 +42,7 @@
                 {{ $device->is_online ? 'Online' : 'Offline' }}
             </span>
         </div>
-        <div style="text-align: right; font-size: 14px; color: #666;">
+        <div class="device-info-section">
             <div><strong>IP:</strong> {{ $device->ip_address ?? 'N/A' }}</div>
             <div><strong>Firmware:</strong> {{ $device->firmware_version ?? 'Unknown' }}</div>
             <div><strong>Last Seen:</strong> {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'Never' }}</div>
@@ -30,9 +51,9 @@
 </div>
 
 <div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
         <div class="card-title" style="margin: 0;">Temperature History</div>
-        <div style="display: flex; gap: 5px;">
+        <div class="range-buttons">
             <button class="range-btn {{ $range == '1h' ? 'active' : '' }}" onclick="changeRange('1h')">1H</button>
             <button class="range-btn {{ $range == '6h' ? 'active' : '' }}" onclick="changeRange('6h')">6H</button>
             <button class="range-btn {{ $range == '24h' ? 'active' : '' }}" onclick="changeRange('24h')">24H</button>

@@ -1,6 +1,13 @@
 @extends('layouts.app')
 
 @section('content')
+<style>
+    @media (max-width: 768px) {
+        .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { min-width: 600px; }
+    }
+</style>
+
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <div class="card-title" style="margin-bottom: 0;">User Management</div>
@@ -19,6 +26,7 @@
         </div>
     @endif
 
+    <div class="table-responsive">
     <table style="width: 100%; border-collapse: collapse;">
         <thead>
             <tr style="border-bottom: 2px solid #ddd; text-align: left;">
@@ -69,6 +77,7 @@
             @endforeach
         </tbody>
     </table>
+    </div>
 
     @if($users->isEmpty())
         <div style="text-align: center; padding: 40px; color: #999;">

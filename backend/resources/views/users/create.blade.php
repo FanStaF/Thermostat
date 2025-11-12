@@ -1,6 +1,16 @@
 @extends('layouts.app')
 
 @section('content')
+<style>
+    .device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+    @media (max-width: 768px) {
+        .device-grid { grid-template-columns: 1fr; }
+        input[type="text"], input[type="email"], input[type="password"], select {
+            font-size: 16px !important; /* Prevents zoom on iOS */
+        }
+    }
+</style>
+
 <a href="{{ route('users.index') }}" class="back-link">&larr; Back to Users</a>
 
 <div class="card">
@@ -68,7 +78,7 @@
                     No devices available. Users can be assigned devices later.
                 </div>
             @else
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;">
+                <div class="device-grid">
                     @foreach($devices as $device)
                         <label style="display: flex; align-items: center; padding: 10px; background: #f8f9fa; border-radius: 4px; cursor: pointer;">
                             <input type="checkbox" name="devices[]" value="{{ $device->id }}"
