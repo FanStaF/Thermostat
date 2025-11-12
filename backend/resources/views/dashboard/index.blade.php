@@ -48,7 +48,7 @@
                                 @foreach($device->relays as $relay)
                                     @php $state = $relay->currentState->first(); @endphp
                                     <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; text-align: center; border: 2px solid {{ $state && $state->state ? '#d4edda' : '#e9ecef' }};">
-                                        <div style="font-size: 11px; color: #666;">R{{ $relay->relay_number }}</div>
+                                        <div style="font-size: 11px; color: #666; font-weight: 600;">{{ $relay->name ?? "Relay {$relay->relay_number}" }}</div>
                                         <div style="font-size: 12px; font-weight: 600; color: {{ $state && $state->state ? '#155724' : '#666' }};">
                                             {{ $state ? ($state->state ? 'ON' : 'OFF') : 'N/A' }}
                                         </div>
