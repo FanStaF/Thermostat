@@ -37,7 +37,9 @@ private:
   String apiUrl;
   int deviceId;
   String authToken;
-  WiFiClientSecure wifiClient;
+  WiFiClient wifiClient;
+  WiFiClientSecure wifiClientSecure;
+  bool useHttps;
 
   static const int MAX_PENDING_COMMANDS = 10;
   Command pendingCommands[MAX_PENDING_COMMANDS];

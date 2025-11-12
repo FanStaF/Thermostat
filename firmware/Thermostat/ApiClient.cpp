@@ -5,20 +5,29 @@
 
 extern SystemLogger logger;
 
-ApiClient::ApiClient(const String& apiUrl) : apiUrl(apiUrl), deviceId(-1), authToken(""), pendingCommandCount(0) {}
+ApiClient::ApiClient(const String& apiUrl) : apiUrl(apiUrl), deviceId(-1), authToken(""), pendingCommandCount(0) {
+  // Detect if using HTTPS
+  useHttps = apiUrl.startsWith("https://");
+}
 
 void ApiClient::begin() {
-  // Configure WiFiClientSecure to not verify SSL certificates
-  // This is insecure but necessary for ESP8266 without certificate management
-  wifiClient.setInsecure();
-
-  // Reduce buffer size to save memory (ESP8266 has limited RAM)
-  wifiClient.setBufferSizes(512, 512);
+  // Configure HTTPS client if needed
+  if (useHttps) {
+    // Configure WiFiClientSecure to not verify SSL certificates
+    wifiClientSecure.setInsecure();
+    // Reduce buffer size to save memory (ESP8266 has limited RAM)
+    wifiClientSecure.setBufferSizes(512, 512);
+    logger.addLog("Using HTTPS");
+  } else {
+    logger.addLog("Using HTTP");
+  }
 
   loadToken();
   logger.addLog("API Client initialized");
   if (authToken.length() > 0) {
-    logger.addLog("Auth token loaded");
+    logger.addLog("Auth token loaded (length: " + String(authToken.length()) + ")");
+  } else {
+    logger.addLog("No auth token found");
   }
 
   logger.addLog("Free heap: " + String(ESP.getFreeHeap()));
@@ -81,10 +90,15 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
   // Set longer timeout for HTTPS
   http.setTimeout(15000);
 
-  if (!http.begin(wifiClient, url)) {
+  // Use appropriate client based on protocol
+  bool beginSuccess = useHttps ? http.begin(wifiClientSecure, url) : http.begin(wifiClient, url);
+  if (!beginSuccess) {
     logger.addLog("ERROR: Failed to begin HTTP connection");
     return false;
   }
+
+  // Follow redirects automatically (e.g., HTTP -> HTTPS)
+  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
@@ -97,22 +111,32 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
     logger.addLog("ERROR: Connection failed - check URL/SSL/DNS");
   }
 
+  // Always get the response body for debugging
+  String response = "";
+  if (httpCode > 0) {
+    response = http.getString();
+    logger.addLog("Response: " + response);
+  }
+
   if (httpCode > 0 && (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED)) {
-    String response = http.getString();
     http.end();
 
-    logger.addLog("Got response: " + response);
     JsonDocument responseDoc;
     DeserializationError error = deserializeJson(responseDoc, response);
 
     if (!error && responseDoc.containsKey("device_id") && responseDoc.containsKey("token")) {
       deviceId = responseDoc["device_id"];
       String token = responseDoc["token"].as<String>();
+      logger.addLog("Received token (length: " + String(token.length()) + ")");
       saveToken(token);
       logger.addLog("Device registered with ID: " + String(deviceId));
       return true;
     } else {
-      logger.addLog("JSON parse error or missing device_id/token");
+      if (error) {
+        logger.addLog("JSON parse error: " + String(error.c_str()));
+      } else {
+        logger.addLog("Response missing device_id or token");
+      }
     }
   } else {
     logger.addLog("HTTP request error: " + String(httpCode));
@@ -275,17 +299,34 @@ bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayloa
   String url = apiUrl + endpoint;
   logger.addLog("POST to: " + url);
 
-  http.begin(wifiClient, url);
+  // Use appropriate client based on protocol
+  if (useHttps) {
+    http.begin(wifiClientSecure, url);
+  } else {
+    http.begin(wifiClient, url);
+  }
+
+  // Set timeout and follow redirects
+  http.setTimeout(15000);
+  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
 
   // Add Bearer token for authenticated requests
   if (authToken.length() > 0) {
     http.addHeader("Authorization", "Bearer " + authToken);
+    logger.addLog("Using auth token (length: " + String(authToken.length()) + ")");
+  } else {
+    logger.addLog("WARNING: No auth token for request!");
   }
 
   int httpCode = http.POST(jsonPayload);
   logger.addLog("HTTP Code: " + String(httpCode));
+
+  if (httpCode == -5) {
+    logger.addLog("ERROR: Connection timeout/failed");
+  }
 
   if (httpCode > 0) {
     response = http.getString();
@@ -306,7 +347,17 @@ bool ApiClient::makeGetRequest(const String& endpoint, String& response) {
   HTTPClient http;
   String url = apiUrl + endpoint;
 
-  http.begin(wifiClient, url);
+  // Use appropriate client based on protocol
+  if (useHttps) {
+    http.begin(wifiClientSecure, url);
+  } else {
+    http.begin(wifiClient, url);
+  }
+
+  // Set timeout and follow redirects
+  http.setTimeout(15000);
+  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+
   http.addHeader("Accept", "application/json");
 
   // Add Bearer token for authenticated requests
@@ -315,6 +366,10 @@ bool ApiClient::makeGetRequest(const String& endpoint, String& response) {
   }
 
   int httpCode = http.GET();
+
+  if (httpCode == -5) {
+    logger.addLog("ERROR: GET connection timeout/failed");
+  }
 
   if (httpCode > 0) {
     response = http.getString();
@@ -334,7 +389,17 @@ bool ApiClient::makePutRequest(const String& endpoint, const String& jsonPayload
   HTTPClient http;
   String url = apiUrl + endpoint;
 
-  http.begin(wifiClient, url);
+  // Use appropriate client based on protocol
+  if (useHttps) {
+    http.begin(wifiClientSecure, url);
+  } else {
+    http.begin(wifiClient, url);
+  }
+
+  // Set timeout and follow redirects
+  http.setTimeout(15000);
+  http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
 
@@ -344,6 +409,10 @@ bool ApiClient::makePutRequest(const String& endpoint, const String& jsonPayload
   }
 
   int httpCode = http.PUT(jsonPayload);
+
+  if (httpCode == -5) {
+    logger.addLog("ERROR: PUT connection timeout/failed");
+  }
 
   if (httpCode > 0) {
     response = http.getString();
