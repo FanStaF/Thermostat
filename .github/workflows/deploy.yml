@@ -24,7 +24,7 @@ jobs:
 
       - name: Deploy via SSH
         run: |
-          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "cd /home/u613295236/domains/lindstromsontheroad.com/public_html/lotr-control && bash deploy.sh"
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} "cd /home/u613295236/public_html/Thermostat/backend && bash deploy.sh"
 
       - name: Deployment Status
         if: success()

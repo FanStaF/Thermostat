@@ -7,8 +7,8 @@ set -e  # Exit on error
 
 echo "🚀 Starting deployment..."
 
-# Navigate to project directory (lotr-control, not the symlink)
-cd /home/u613295236/domains/lindstromsontheroad.com/public_html/lotr-control || exit 1
+# Navigate to project directory
+cd /home/u613295236/public_html/Thermostat/backend || exit 1
 
 # Enable maintenance mode
 echo "📦 Enabling maintenance mode..."
