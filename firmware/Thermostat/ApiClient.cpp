@@ -12,11 +12,16 @@ void ApiClient::begin() {
   // This is insecure but necessary for ESP8266 without certificate management
   wifiClient.setInsecure();
 
+  // Reduce buffer size to save memory (ESP8266 has limited RAM)
+  wifiClient.setBufferSizes(512, 512);
+
   loadToken();
   logger.addLog("API Client initialized");
   if (authToken.length() > 0) {
     logger.addLog("Auth token loaded");
   }
+
+  logger.addLog("Free heap: " + String(ESP.getFreeHeap()));
 }
 
 void ApiClient::loadToken() {
@@ -73,13 +78,24 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
   String url = apiUrl + "/api/devices/register";
   logger.addLog("POST to: " + url);
 
-  http.begin(wifiClient, url);
+  // Set longer timeout for HTTPS
+  http.setTimeout(15000);
+
+  if (!http.begin(wifiClient, url)) {
+    logger.addLog("ERROR: Failed to begin HTTP connection");
+    return false;
+  }
+
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
   http.addHeader("X-API-Key", API_KEY);
 
   int httpCode = http.POST(jsonPayload);
   logger.addLog("HTTP Code: " + String(httpCode));
+
+  if (httpCode == -1) {
+    logger.addLog("ERROR: Connection failed - check URL/SSL/DNS");
+  }
 
   if (httpCode > 0 && (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED)) {
     String response = http.getString();
