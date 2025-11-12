@@ -30,7 +30,7 @@
                                 </div>
                             </div>
                             @if($device->temp_trend && $device->temp_trend->count() > 1)
-                                <div style="margin-top: 10px; height: 50px;">
+                                <div style="margin-top: 10px; height: 80px;">
                                     <canvas id="tempChart{{ $device->id }}" style="width: 100%; height: 100%;"></canvas>
                                 </div>
                             @endif
@@ -96,10 +96,14 @@
                 const canvas{{ $device->id }} = document.getElementById('tempChart{{ $device->id }}');
                 if (canvas{{ $device->id }}) {
                     const tempData{{ $device->id }} = {!! json_encode($device->temp_trend->map(fn($t) => floatval($t))) !!};
+
+                    // Get time labels for last 12 readings
+                    const tempReadings{{ $device->id }} = {!! json_encode($device->temperatureReadings()->latest('recorded_at')->limit(12)->get()->reverse()->map(fn($r) => $r->recorded_at)) !!};
+
                     new Chart(canvas{{ $device->id }}, {
                         type: 'line',
                         data: {
-                            labels: Array.from({length: tempData{{ $device->id }}.length}, (_, i) => i),
+                            labels: tempReadings{{ $device->id }},
                             datasets: [{
                                 data: tempData{{ $device->id }},
                                 borderColor: '#1976d2',
@@ -107,8 +111,9 @@
                                 borderWidth: 2,
                                 tension: 0.4,
                                 fill: true,
-                                pointRadius: 0,
-                                pointHoverRadius: 0
+                                pointRadius: 2,
+                                pointHoverRadius: 4,
+                                pointBackgroundColor: '#1976d2'
                             }]
                         },
                         options: {
@@ -116,16 +121,44 @@
                             maintainAspectRatio: false,
                             plugins: {
                                 legend: { display: false },
-                                tooltip: { enabled: false }
-                            },
-                            scales: {
-                                x: { display: false },
-                                y: {
-                                    display: false,
-                                    beginAtZero: false
+                                tooltip: {
+                                    enabled: true,
+                                    callbacks: {
+                                        label: function(context) {
+                                            return context.parsed.y.toFixed(1) + '°C';
+                                        }
+                                    }
                                 }
                             },
-                            interaction: { mode: null }
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'hour',
+                                        displayFormats: {
+                                            hour: 'HH:mm'
+                                        }
+                                    },
+                                    ticks: {
+                                        maxTicksLimit: 4,
+                                        font: { size: 9 },
+                                        color: '#666'
+                                    },
+                                    grid: { display: false }
+                                },
+                                y: {
+                                    ticks: {
+                                        maxTicksLimit: 3,
+                                        font: { size: 9 },
+                                        color: '#666',
+                                        callback: function(value) {
+                                            return value.toFixed(1) + '°';
+                                        }
+                                    },
+                                    grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                                    beginAtZero: false
+                                }
+                            }
                         }
                     });
                 }

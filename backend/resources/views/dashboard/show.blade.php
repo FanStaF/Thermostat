@@ -232,9 +232,18 @@
                                 }
                             @endif
                         },
+                        ticks: {
+                            autoSkip: true,
+                            maxTicksLimit: 8,
+                            font: { size: 11 }
+                        },
                         title: {
                             display: true,
                             text: 'Time'
+                        },
+                        grid: {
+                            display: true,
+                            color: 'rgba(0, 0, 0, 0.05)'
                         }
                     },
                     y: {
