@@ -212,13 +212,11 @@
                         time: {
                             @if($range == '1h' || $range == '6h')
                                 unit: 'minute',
-                                stepSize: {{ $range == '1h' ? 10 : 60 }},
                                 displayFormats: {
                                     minute: 'HH:mm'
                                 }
                             @elseif($range == '24h')
                                 unit: 'hour',
-                                stepSize: 3,
                                 displayFormats: {
                                     hour: 'HH:mm'
                                 }
@@ -229,22 +227,23 @@
                                 }
                             @elseif($range == '30d')
                                 unit: 'day',
-                                stepSize: 5,
                                 displayFormats: {
                                     day: 'MMM d'
                                 }
                             @else
-                                unit: 'week',
+                                unit: 'day',
                                 displayFormats: {
-                                    week: 'MMM d'
+                                    day: 'MMM d, yyyy'
                                 }
                             @endif
                         },
                         ticks: {
-                            autoSkip: false,
+                            source: 'data',
+                            autoSkip: dataCount > 12,
+                            maxTicksLimit: dataCount < 12 ? dataCount : 12,
                             maxRotation: 45,
                             minRotation: 0,
-                            font: { size: 11 },
+                            font: { size: 10 },
                             color: '#666'
                         },
                         title: {
