@@ -29,7 +29,7 @@
                                     {{ $device->latest_temp->recorded_at->diffForHumans() }}
                                 </div>
                             </div>
-                            @if($device->temp_trend && $device->temp_trend->count() > 1)
+                            @if($device->temp_trend_data && $device->temp_trend_data->count() > 1)
                                 <div style="margin-top: 10px; height: 80px;">
                                     <canvas id="tempChart{{ $device->id }}" style="width: 100%; height: 100%;"></canvas>
                                 </div>
@@ -92,20 +92,21 @@
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         @foreach($devices as $device)
-            @if($device->temp_trend && $device->temp_trend->count() > 1)
+            @if($device->temp_trend_data && $device->temp_trend_data->count() > 1)
                 const canvas{{ $device->id }} = document.getElementById('tempChart{{ $device->id }}');
                 if (canvas{{ $device->id }}) {
-                    const tempData{{ $device->id }} = {!! json_encode($device->temp_trend->map(fn($t) => floatval($t))) !!};
-
-                    // Get time labels for last 12 readings
-                    const tempReadings{{ $device->id }} = {!! json_encode($device->temperatureReadings()->latest('recorded_at')->limit(12)->get()->reverse()->map(fn($r) => $r->recorded_at)) !!};
+                    const trendData{{ $device->id }} = {!! json_encode($device->temp_trend_data->map(function($r) {
+                        return [
+                            'x' => $r->recorded_at,
+                            'y' => floatval($r->temperature)
+                        ];
+                    })) !!};
 
                     new Chart(canvas{{ $device->id }}, {
                         type: 'line',
                         data: {
-                            labels: tempReadings{{ $device->id }},
                             datasets: [{
-                                data: tempData{{ $device->id }},
+                                data: trendData{{ $device->id }},
                                 borderColor: '#1976d2',
                                 backgroundColor: 'rgba(25, 118, 210, 0.1)',
                                 borderWidth: 2,
@@ -113,7 +114,9 @@
                                 fill: true,
                                 pointRadius: 2,
                                 pointHoverRadius: 4,
-                                pointBackgroundColor: '#1976d2'
+                                pointBackgroundColor: '#1976d2',
+                                pointBorderColor: '#fff',
+                                pointBorderWidth: 1
                             }]
                         },
                         options: {

@@ -27,13 +27,23 @@ class DashboardController extends Controller
         $devices->each(function($device) {
             $device->latest_temp = $device->temperatureReadings->first();
 
-            // Get temperature trend (last 12 readings for sparkline)
-            $device->temp_trend = $device->temperatureReadings()
-                ->latest('recorded_at')
-                ->limit(12)
-                ->get()
-                ->reverse()
-                ->pluck('temperature');
+            // Get temperature trend (last 8 hours, sampled to ~16 datapoints)
+            $readings = $device->temperatureReadings()
+                ->where('recorded_at', '>=', now()->subHours(8))
+                ->orderBy('recorded_at', 'asc')
+                ->get();
+
+            // Sample to ~16 datapoints
+            $totalReadings = $readings->count();
+            if ($totalReadings > 16) {
+                $step = (int) ceil($totalReadings / 16);
+                $sampledReadings = $readings->filter(function($reading, $index) use ($step) {
+                    return $index % $step === 0;
+                });
+                $device->temp_trend_data = $sampledReadings->values();
+            } else {
+                $device->temp_trend_data = $readings;
+            }
         });
 
         return view('dashboard.index', compact('devices'));

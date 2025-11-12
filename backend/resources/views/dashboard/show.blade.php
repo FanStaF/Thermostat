@@ -212,11 +212,13 @@
                         time: {
                             @if($range == '1h' || $range == '6h')
                                 unit: 'minute',
+                                stepSize: {{ $range == '1h' ? 10 : 60 }},
                                 displayFormats: {
                                     minute: 'HH:mm'
                                 }
                             @elseif($range == '24h')
                                 unit: 'hour',
+                                stepSize: 3,
                                 displayFormats: {
                                     hour: 'HH:mm'
                                 }
@@ -225,25 +227,34 @@
                                 displayFormats: {
                                     day: 'MMM d'
                                 }
-                            @else
+                            @elseif($range == '30d')
                                 unit: 'day',
+                                stepSize: 5,
                                 displayFormats: {
-                                    day: 'MMM d, yyyy'
+                                    day: 'MMM d'
+                                }
+                            @else
+                                unit: 'week',
+                                displayFormats: {
+                                    week: 'MMM d'
                                 }
                             @endif
                         },
                         ticks: {
-                            autoSkip: true,
-                            maxTicksLimit: 8,
-                            font: { size: 11 }
+                            autoSkip: false,
+                            maxRotation: 45,
+                            minRotation: 0,
+                            font: { size: 11 },
+                            color: '#666'
                         },
                         title: {
                             display: true,
-                            text: 'Time'
+                            text: 'Time',
+                            font: { size: 12, weight: 'bold' }
                         },
                         grid: {
                             display: true,
-                            color: 'rgba(0, 0, 0, 0.05)'
+                            color: 'rgba(0, 0, 0, 0.08)'
                         }
                     },
                     y: {
