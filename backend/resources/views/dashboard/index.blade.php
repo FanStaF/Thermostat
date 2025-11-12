@@ -95,12 +95,13 @@
             @if($device->temp_trend && $device->temp_trend->count() > 1)
                 const canvas{{ $device->id }} = document.getElementById('tempChart{{ $device->id }}');
                 if (canvas{{ $device->id }}) {
+                    const tempData{{ $device->id }} = {!! json_encode($device->temp_trend->map(fn($t) => floatval($t))) !!};
                     new Chart(canvas{{ $device->id }}, {
                         type: 'line',
                         data: {
-                            labels: Array.from({length: {{ $device->temp_trend->count() }}}, (_, i) => i),
+                            labels: Array.from({length: tempData{{ $device->id }}.length}, (_, i) => i),
                             datasets: [{
-                                data: {{ $device->temp_trend }},
+                                data: tempData{{ $device->id }},
                                 borderColor: '#1976d2',
                                 backgroundColor: 'rgba(25, 118, 210, 0.1)',
                                 borderWidth: 2,

@@ -158,6 +158,12 @@
         const ctx = document.getElementById('temperatureChart').getContext('2d');
 
         const readings = @json($readings);
+        const dataCount = readings.length;
+
+        // Adjust display based on data density
+        const showPoints = dataCount < 100;
+        const pointRadius = dataCount < 20 ? 4 : (dataCount < 50 ? 3 : 0);
+        const tension = dataCount < 50 ? 0.1 : 0.4;
 
         const chartData = {
             labels: readings.map(r => r.recorded_at),
@@ -169,8 +175,13 @@
                 })),
                 borderColor: 'rgb(52, 152, 219)',
                 backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                tension: 0.4,
-                fill: true
+                tension: tension,
+                fill: true,
+                pointRadius: pointRadius,
+                pointHoverRadius: pointRadius + 2,
+                pointBackgroundColor: 'rgb(52, 152, 219)',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
             }]
         };
 
