@@ -43,6 +43,21 @@ class CommandController extends Controller
             return response()->json(['error' => 'Device not found'], 404);
         }
 
+        // Check permissions when called from web (has auth user)
+        if (auth()->check()) {
+            $user = auth()->user();
+
+            // Check if user has access to this device
+            if (!$user->canAccessDevice($deviceId)) {
+                return response()->json(['error' => 'You do not have permission to access this device'], 403);
+            }
+
+            // Check if user has control permissions (viewers can't send commands)
+            if (!$user->canControl()) {
+                return response()->json(['error' => 'You do not have permission to control devices'], 403);
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             'type' => 'required|in:set_relay_mode,set_thresholds,set_frequency,set_unit,restart',
             'params' => 'required|array',

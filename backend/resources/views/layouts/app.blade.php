@@ -49,13 +49,31 @@
 <body>
     <div class="header">
         <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
-            <h1>{{ config('app.name', 'Thermostat Monitor') }}</h1>
-            <form method="POST" action="{{ route('logout') }}">
-                @csrf
-                <button type="submit" class="btn btn-secondary" style="padding: 8px 16px; font-size: 14px;">
-                    Logout
-                </button>
-            </form>
+            <div style="display: flex; align-items: center; gap: 30px;">
+                <h1 style="margin: 0;">{{ config('app.name', 'Thermostat Monitor') }}</h1>
+                <nav style="display: flex; gap: 20px;">
+                    <a href="{{ route('dashboard.index') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('dashboard.*') ? '600' : '400' }};">
+                        Dashboard
+                    </a>
+                    @if(auth()->user()->isAdmin())
+                        <a href="{{ route('users.index') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('users.*') ? '600' : '400' }};">
+                            Users
+                        </a>
+                    @endif
+                    <a href="{{ route('profile.edit') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('profile.*') ? '600' : '400' }};">
+                        Profile
+                    </a>
+                </nav>
+            </div>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span style="color: #ecf0f1; font-size: 14px;">{{ auth()->user()->name }} ({{ ucfirst(auth()->user()->role) }})</span>
+                <form method="POST" action="{{ route('logout') }}">
+                    @csrf
+                    <button type="submit" class="btn btn-secondary" style="padding: 8px 16px; font-size: 14px;">
+                        Logout
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 

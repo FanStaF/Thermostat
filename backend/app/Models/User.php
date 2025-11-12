@@ -22,6 +22,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'role',
     ];
 
     /**
@@ -52,5 +53,39 @@ class User extends Authenticatable
         return $this->belongsToMany(Device::class, 'device_user')
             ->withPivot('role')
             ->withTimestamps();
+    }
+
+    // Permission helper methods
+    public function isAdmin()
+    {
+        return $this->role === 'admin';
+    }
+
+    public function isUser()
+    {
+        return $this->role === 'user';
+    }
+
+    public function isViewer()
+    {
+        return $this->role === 'viewer';
+    }
+
+    public function canControl()
+    {
+        return in_array($this->role, ['admin', 'user']);
+    }
+
+    public function canManageUsers()
+    {
+        return $this->isAdmin();
+    }
+
+    public function canAccessDevice($deviceId)
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+        return $this->devices()->where('device_id', $deviceId)->exists();
     }
 }

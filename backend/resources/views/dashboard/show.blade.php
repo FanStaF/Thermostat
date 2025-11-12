@@ -7,11 +7,15 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <div style="flex: 1;">
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                <input type="text" id="deviceName" value="{{ $device->name }}"
-                       style="font-size: 20px; font-weight: 600; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; flex: 0 0 300px;">
-                <button class="btn" style="padding: 5px 15px; font-size: 14px;" onclick="updateDeviceName()">
-                    Save Name
-                </button>
+                @if(auth()->user()->canControl())
+                    <input type="text" id="deviceName" value="{{ $device->name }}"
+                           style="font-size: 20px; font-weight: 600; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; flex: 0 0 300px;">
+                    <button class="btn" style="padding: 5px 15px; font-size: 14px;" onclick="updateDeviceName()">
+                        Save Name
+                    </button>
+                @else
+                    <span style="font-size: 20px; font-weight: 600;">{{ $device->name }}</span>
+                @endif
             </div>
             <span class="status {{ $device->is_online ? 'online' : 'offline' }}">
                 {{ $device->is_online ? 'Online' : 'Offline' }}
@@ -55,13 +59,17 @@
             @endphp
             <div class="relay-card" data-relay-id="{{ $relay->id }}" data-relay-number="{{ $relay->relay_number }}">
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                    <input type="text" id="relayName-{{ $relay->relay_number }}"
-                           value="{{ $relay->name ?? "Relay {$relay->relay_number}" }}"
-                           style="flex: 1; padding: 5px 8px; border: 1px solid #ddd; border-radius: 3px; font-weight: 600;">
-                    <button class="btn" style="padding: 4px 10px; font-size: 11px;"
-                            onclick="updateRelayName({{ $relay->relay_number }})">
-                        Save
-                    </button>
+                    @if(auth()->user()->canControl())
+                        <input type="text" id="relayName-{{ $relay->relay_number }}"
+                               value="{{ $relay->name ?? "Relay {$relay->relay_number}" }}"
+                               style="flex: 1; padding: 5px 8px; border: 1px solid #ddd; border-radius: 3px; font-weight: 600;">
+                        <button class="btn" style="padding: 4px 10px; font-size: 11px;"
+                                onclick="updateRelayName({{ $relay->relay_number }})">
+                            Save
+                        </button>
+                    @else
+                        <div class="relay-name">{{ $relay->name ?? "Relay {$relay->relay_number}" }}</div>
+                    @endif
                 </div>
 
                 @if($currentState)
@@ -74,39 +82,52 @@
 
                     <div style="margin: 10px 0;">
                         <strong>Mode:</strong>
-                        <div style="display: flex; gap: 5px; margin-top: 5px;">
-                            <button class="mode-btn {{ $currentState->mode == 'AUTO' ? 'active' : '' }}"
-                                    onclick="setRelayMode({{ $relay->relay_number }}, 'AUTO')"
-                                    data-mode="AUTO">AUTO</button>
-                            <button class="mode-btn {{ $currentState->mode == 'MANUAL_ON' ? 'active' : '' }}"
-                                    onclick="setRelayMode({{ $relay->relay_number }}, 'MANUAL_ON')"
-                                    data-mode="MANUAL_ON">ON</button>
-                            <button class="mode-btn {{ $currentState->mode == 'MANUAL_OFF' ? 'active' : '' }}"
-                                    onclick="setRelayMode({{ $relay->relay_number }}, 'MANUAL_OFF')"
-                                    data-mode="MANUAL_OFF">OFF</button>
-                        </div>
+                        @if(auth()->user()->canControl())
+                            <div style="display: flex; gap: 5px; margin-top: 5px;">
+                                <button class="mode-btn {{ $currentState->mode == 'AUTO' ? 'active' : '' }}"
+                                        onclick="setRelayMode({{ $relay->relay_number }}, 'AUTO')"
+                                        data-mode="AUTO">AUTO</button>
+                                <button class="mode-btn {{ $currentState->mode == 'MANUAL_ON' ? 'active' : '' }}"
+                                        onclick="setRelayMode({{ $relay->relay_number }}, 'MANUAL_ON')"
+                                        data-mode="MANUAL_ON">ON</button>
+                                <button class="mode-btn {{ $currentState->mode == 'MANUAL_OFF' ? 'active' : '' }}"
+                                        onclick="setRelayMode({{ $relay->relay_number }}, 'MANUAL_OFF')"
+                                        data-mode="MANUAL_OFF">OFF</button>
+                            </div>
+                        @else
+                            <div style="margin-top: 5px;">
+                                <span class="mode-badge">{{ $currentState->mode }}</span>
+                            </div>
+                        @endif
                     </div>
 
                     <div style="margin: 10px 0;">
                         <strong>Thresholds:</strong>
-                        <div style="margin-top: 5px;">
-                            <label style="font-size: 12px; display: block; margin-bottom: 3px;">ON Temp (°C):</label>
-                            <input type="number" step="0.5" class="threshold-input"
-                                   id="tempOn-{{ $relay->relay_number }}"
-                                   value="{{ $currentState->temp_on }}"
-                                   style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
-                        </div>
-                        <div style="margin-top: 5px;">
-                            <label style="font-size: 12px; display: block; margin-bottom: 3px;">OFF Temp (°C):</label>
-                            <input type="number" step="0.5" class="threshold-input"
-                                   id="tempOff-{{ $relay->relay_number }}"
-                                   value="{{ $currentState->temp_off }}"
-                                   style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
-                        </div>
-                        <button class="btn" style="width: 100%; margin-top: 8px; padding: 8px; font-size: 13px;"
-                                onclick="setThresholds({{ $relay->relay_number }})">
-                            Update Thresholds
-                        </button>
+                        @if(auth()->user()->canControl())
+                            <div style="margin-top: 5px;">
+                                <label style="font-size: 12px; display: block; margin-bottom: 3px;">ON Temp (°C):</label>
+                                <input type="number" step="0.5" class="threshold-input"
+                                       id="tempOn-{{ $relay->relay_number }}"
+                                       value="{{ $currentState->temp_on }}"
+                                       style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                            </div>
+                            <div style="margin-top: 5px;">
+                                <label style="font-size: 12px; display: block; margin-bottom: 3px;">OFF Temp (°C):</label>
+                                <input type="number" step="0.5" class="threshold-input"
+                                       id="tempOff-{{ $relay->relay_number }}"
+                                       value="{{ $currentState->temp_off }}"
+                                       style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                            </div>
+                            <button class="btn" style="width: 100%; margin-top: 8px; padding: 8px; font-size: 13px;"
+                                    onclick="setThresholds({{ $relay->relay_number }})">
+                                Update Thresholds
+                            </button>
+                        @else
+                            <div style="margin-top: 5px; color: #666; font-size: 14px;">
+                                <div>ON Temp: {{ $currentState->temp_on }}°C</div>
+                                <div>OFF Temp: {{ $currentState->temp_off }}°C</div>
+                            </div>
+                        @endif
                     </div>
                 @else
                     <p style="color: #999; font-size: 14px;">No state data available</p>
@@ -118,38 +139,40 @@
     </div>
 </div>
 
-<div class="card">
-    <div class="card-title">Device Settings</div>
-    @if($device->settings)
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-            <div>
-                <label style="font-weight: 600; display: block; margin-bottom: 5px;">Update Frequency:</label>
-                <input type="number" id="updateFrequency" value="{{ $device->settings->update_frequency }}"
-                       min="1" max="60"
-                       style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                <small style="color: #666;">seconds</small>
+@if(auth()->user()->canControl())
+    <div class="card">
+        <div class="card-title">Device Settings</div>
+        @if($device->settings)
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                <div>
+                    <label style="font-weight: 600; display: block; margin-bottom: 5px;">Update Frequency:</label>
+                    <input type="number" id="updateFrequency" value="{{ $device->settings->update_frequency }}"
+                           min="1" max="60"
+                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <small style="color: #666;">seconds</small>
+                </div>
+                <div>
+                    <label style="font-weight: 600; display: block; margin-bottom: 5px;">Temperature Unit:</label>
+                    <select id="useFahrenheit"
+                            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="0" {{ !$device->settings->use_fahrenheit ? 'selected' : '' }}>Celsius</option>
+                        <option value="1" {{ $device->settings->use_fahrenheit ? 'selected' : '' }}>Fahrenheit</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-weight: 600; display: block; margin-bottom: 5px;">Timezone:</label>
+                    <input type="text" id="timezone" value="{{ $device->settings->timezone }}"
+                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
             </div>
-            <div>
-                <label style="font-weight: 600; display: block; margin-bottom: 5px;">Temperature Unit:</label>
-                <select id="useFahrenheit"
-                        style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                    <option value="0" {{ !$device->settings->use_fahrenheit ? 'selected' : '' }}>Celsius</option>
-                    <option value="1" {{ $device->settings->use_fahrenheit ? 'selected' : '' }}>Fahrenheit</option>
-                </select>
-            </div>
-            <div>
-                <label style="font-weight: 600; display: block; margin-bottom: 5px;">Timezone:</label>
-                <input type="text" id="timezone" value="{{ $device->settings->timezone }}"
-                       style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-            </div>
-        </div>
-        <button class="btn" style="margin-top: 15px;" onclick="updateSettings()">
-            Save Settings
-        </button>
-    @else
-        <p style="color: #666;">No settings configured.</p>
-    @endif
-</div>
+            <button class="btn" style="margin-top: 15px;" onclick="updateSettings()">
+                Save Settings
+            </button>
+        @else
+            <p style="color: #666;">No settings configured.</p>
+        @endif
+    </div>
+@endif
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>

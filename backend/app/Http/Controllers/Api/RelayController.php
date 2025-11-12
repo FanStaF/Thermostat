@@ -118,6 +118,21 @@ class RelayController extends Controller
             return response()->json(['error' => 'Relay not found'], 404);
         }
 
+        // Check permissions when called from web (has auth user)
+        if (auth()->check()) {
+            $user = auth()->user();
+
+            // Check if user has access to this device
+            if (!$user->canAccessDevice($deviceId)) {
+                return response()->json(['error' => 'You do not have permission to access this device'], 403);
+            }
+
+            // Check if user has control permissions (viewers can't edit)
+            if (!$user->canControl()) {
+                return response()->json(['error' => 'You do not have permission to edit relays'], 403);
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
         ]);

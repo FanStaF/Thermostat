@@ -13,15 +13,27 @@ class DashboardController extends Controller
      */
     public function index()
     {
-        $devices = Device::with([
+        $user = auth()->user();
+
+        // Build query based on user permissions
+        $query = Device::with([
             'settings',
             'relays.currentState',
             'temperatureReadings' => function($query) {
                 $query->latest('recorded_at')->limit(1);
             }
         ])
-            ->withCount('temperatureReadings')
-            ->get();
+            ->withCount('temperatureReadings');
+
+        // Filter devices based on user role
+        if (!$user->isAdmin()) {
+            // Non-admin users only see their assigned devices
+            $query->whereHas('users', function($q) use ($user) {
+                $q->where('user_id', $user->id);
+            });
+        }
+
+        $devices = $query->get();
 
         // Add latest temperature to each device
         $devices->each(function($device) {
@@ -54,10 +66,17 @@ class DashboardController extends Controller
      */
     public function show(Request $request, $deviceId)
     {
+        $user = auth()->user();
+
         $device = Device::with([
             'settings',
             'relays.currentState',
         ])->findOrFail($deviceId);
+
+        // Check if user has permission to access this device
+        if (!$user->canAccessDevice($deviceId)) {
+            abort(403, 'You do not have permission to access this device.');
+        }
 
         // Get time range from request, default to 24h
         $range = $request->get('range', '24h');
