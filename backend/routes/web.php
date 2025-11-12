@@ -2,6 +2,9 @@
 
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\DashboardController;
+use App\Http\Controllers\Api\CommandController;
+use App\Http\Controllers\Api\DeviceController;
+use App\Http\Controllers\Api\RelayController;
 use Illuminate\Support\Facades\Route;
 
 // Authentication Routes
@@ -13,4 +16,9 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout')->middl
 Route::middleware('auth')->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard.index');
     Route::get('/devices/{device}', [DashboardController::class, 'show'])->name('dashboard.show');
+
+    // Web API endpoints (use session auth instead of Sanctum)
+    Route::post('/devices/{device}/commands', [CommandController::class, 'store']);
+    Route::patch('/devices/{device}', [DeviceController::class, 'update']);
+    Route::patch('/devices/{device}/relays/{relay}', [RelayController::class, 'update']);
 });

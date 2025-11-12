@@ -241,7 +241,7 @@
     }
 
     function sendCommand(type, params) {
-        fetch(`/api/devices/${deviceId}/commands`, {
+        fetch(`/devices/${deviceId}/commands`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -249,7 +249,14 @@
             },
             body: JSON.stringify({ type, params })
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                return response.text().then(text => {
+                    throw new Error(`HTTP ${response.status}: ${text.substring(0, 100)}`);
+                });
+            }
+            return response.json();
+        })
         .then(data => {
             showMessage('Command sent successfully! Device will apply changes shortly.');
         })
@@ -323,7 +330,7 @@
             return;
         }
 
-        fetch(`/api/devices/${deviceId}`, {
+        fetch(`/devices/${deviceId}`, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -352,7 +359,7 @@
         const card = document.querySelector(`[data-relay-number="${relayNumber}"]`);
         const relayId = card.dataset.relayId;
 
-        fetch(`/api/devices/${deviceId}/relays/${relayId}`, {
+        fetch(`/devices/${deviceId}/relays/${relayId}`, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
