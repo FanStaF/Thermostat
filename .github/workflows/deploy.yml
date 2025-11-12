@@ -1,10 +1,10 @@
 name: Deploy to Hostinger
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:  # Allow manual deployment
+  # push:
+  #   branches:
+  #     - main
+  workflow_dispatch:  # Allow manual deployment only
 
 jobs:
   deploy:
