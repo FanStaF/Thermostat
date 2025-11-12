@@ -174,7 +174,12 @@
                     },
                     tooltip: {
                         mode: 'index',
-                        intersect: false
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '°C';
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -195,6 +200,11 @@
                         title: {
                             display: true,
                             text: 'Temperature (°C)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value.toFixed(1);
+                            }
                         }
                     }
                 },

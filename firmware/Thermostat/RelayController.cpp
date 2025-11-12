@@ -85,8 +85,8 @@ void RelayController::setTempThresholds(int index, float tOn, float tOff) {
 String RelayController::modeToString(Mode m) {
   switch (m) {
     case AUTO: return "AUTO";
-    case MANUAL_ON: return "ON";
-    case MANUAL_OFF: return "OFF";
+    case MANUAL_ON: return "MANUAL_ON";
+    case MANUAL_OFF: return "MANUAL_OFF";
   }
-  return "?";
+  return "AUTO";
 }
