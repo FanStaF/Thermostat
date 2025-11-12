@@ -5,6 +5,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
 class ApiClient {
@@ -36,7 +37,7 @@ private:
   String apiUrl;
   int deviceId;
   String authToken;
-  WiFiClient wifiClient;
+  WiFiClientSecure wifiClient;
 
   static const int MAX_PENDING_COMMANDS = 10;
   Command pendingCommands[MAX_PENDING_COMMANDS];

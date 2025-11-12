@@ -8,6 +8,10 @@ extern SystemLogger logger;
 ApiClient::ApiClient(const String& apiUrl) : apiUrl(apiUrl), deviceId(-1), authToken(""), pendingCommandCount(0) {}
 
 void ApiClient::begin() {
+  // Configure WiFiClientSecure to not verify SSL certificates
+  // This is insecure but necessary for ESP8266 without certificate management
+  wifiClient.setInsecure();
+
   loadToken();
   logger.addLog("API Client initialized");
   if (authToken.length() > 0) {
