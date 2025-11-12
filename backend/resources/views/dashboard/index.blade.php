@@ -77,15 +77,17 @@
     @endif
 </div>
 
-<div class="card">
-    <div class="card-title">API Information</div>
-    <p style="color: #666; margin-bottom: 10px;">
-        To connect your ESP8266 device, use the following API endpoint:
-    </p>
-    <code style="background: #f8f9fa; padding: 10px; display: block; border-radius: 4px;">
-        POST {{ url('/api/devices/register') }}
-    </code>
-</div>
+@if(auth()->user()->isAdmin())
+    <div class="card">
+        <div class="card-title">API Information</div>
+        <p style="color: #666; margin-bottom: 10px;">
+            To connect your ESP8266 device, use the following API endpoint:
+        </p>
+        <code style="background: #f8f9fa; padding: 10px; display: block; border-radius: 4px;">
+            POST {{ url('/api/devices/register') }}
+        </code>
+    </div>
+@endif
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>

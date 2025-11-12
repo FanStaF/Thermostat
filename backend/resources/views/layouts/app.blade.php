@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ config('app.name', 'Thermostat Monitor') }}</title>
+    <title>{{ config('app.name', 'LOTR Mobile Command') }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ asset('icons/homehub.svg') }}">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; overflow-x: hidden; }
@@ -63,6 +64,7 @@
         @media (max-width: 768px) {
             .header { padding: 15px 0; }
             .header h1 { font-size: 18px !important; }
+            .header h1 img { width: 24px !important; height: 24px !important; }
             .header-content { flex-direction: column; gap: 15px; align-items: flex-start; }
             .header-left { flex-direction: column; gap: 10px; align-items: flex-start; width: 100%; }
             .header-nav { gap: 15px; font-size: 14px; }
@@ -77,7 +79,10 @@
     <div class="header">
         <div class="container header-content">
             <div class="header-left">
-                <h1 style="margin: 0;">{{ config('app.name', 'Thermostat Monitor') }}</h1>
+                <h1 style="margin: 0; display: flex; align-items: center; gap: 10px;">
+                    <img src="{{ asset('icons/homehub.svg') }}" alt="LOTR Mobile Command" style="width: 32px; height: 32px;">
+                    <span>{{ config('app.name', 'LOTR Mobile Command') }}</span>
+                </h1>
                 <nav class="header-nav">
                     <a href="{{ route('dashboard.index') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('dashboard.*') ? '600' : '400' }};">
                         Dashboard
