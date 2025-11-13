@@ -125,18 +125,26 @@
                     <div style="margin: 10px 0;">
                         <strong>Thresholds:</strong>
                         @if(auth()->user()->canControl())
+                            @php
+                                $tempOnDisplay = $currentState->temp_on;
+                                $tempOffDisplay = $currentState->temp_off;
+                                if ($device->settings && $device->settings->use_fahrenheit) {
+                                    $tempOnDisplay = ($tempOnDisplay * 9/5) + 32;
+                                    $tempOffDisplay = ($tempOffDisplay * 9/5) + 32;
+                                }
+                            @endphp
                             <div style="margin-top: 5px;">
-                                <label style="font-size: 12px; display: block; margin-bottom: 3px;">ON Temp (°C):</label>
+                                <label style="font-size: 12px; display: block; margin-bottom: 3px;">ON Temp ({{ $device->settings->use_fahrenheit ? '°F' : '°C' }}):</label>
                                 <input type="number" step="0.5" class="threshold-input"
                                        id="tempOn-{{ $relay->relay_number }}"
-                                       value="{{ $currentState->temp_on }}"
+                                       value="{{ number_format($tempOnDisplay, 1) }}"
                                        style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
                             </div>
                             <div style="margin-top: 5px;">
-                                <label style="font-size: 12px; display: block; margin-bottom: 3px;">OFF Temp (°C):</label>
+                                <label style="font-size: 12px; display: block; margin-bottom: 3px;">OFF Temp ({{ $device->settings->use_fahrenheit ? '°F' : '°C' }}):</label>
                                 <input type="number" step="0.5" class="threshold-input"
                                        id="tempOff-{{ $relay->relay_number }}"
-                                       value="{{ $currentState->temp_off }}"
+                                       value="{{ number_format($tempOffDisplay, 1) }}"
                                        style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
                             </div>
                             <button class="btn" style="width: 100%; margin-top: 8px; padding: 8px; font-size: 13px;"
@@ -144,9 +152,17 @@
                                 Update Thresholds
                             </button>
                         @else
+                            @php
+                                $tempOnDisplay = $currentState->temp_on;
+                                $tempOffDisplay = $currentState->temp_off;
+                                if ($device->settings && $device->settings->use_fahrenheit) {
+                                    $tempOnDisplay = ($tempOnDisplay * 9/5) + 32;
+                                    $tempOffDisplay = ($tempOffDisplay * 9/5) + 32;
+                                }
+                            @endphp
                             <div style="margin-top: 5px; color: #666; font-size: 14px;">
-                                <div>ON Temp: {{ $currentState->temp_on }}°C</div>
-                                <div>OFF Temp: {{ $currentState->temp_off }}°C</div>
+                                <div>ON Temp: {{ number_format($tempOnDisplay, 1) }}{{ $device->settings->use_fahrenheit ? '°F' : '°C' }}</div>
+                                <div>OFF Temp: {{ number_format($tempOffDisplay, 1) }}{{ $device->settings->use_fahrenheit ? '°F' : '°C' }}</div>
                             </div>
                         @endif
                     </div>
@@ -254,14 +270,20 @@
         const pointRadius = dataCount < 20 ? 4 : (dataCount < 50 ? 3 : 0);
         const tension = dataCount < 50 ? 0.1 : 0.4;
 
+        const useFahrenheit = {{ $device->settings->use_fahrenheit ? 'true' : 'false' }};
+        const tempUnit = useFahrenheit ? '°F' : '°C';
+
         const chartData = {
             labels: readings.map(r => r.recorded_at),
             datasets: [{
-                label: 'Temperature (°C)',
-                data: readings.map(r => ({
-                    x: r.recorded_at,
-                    y: parseFloat(r.temperature)
-                })),
+                label: 'Temperature (' + tempUnit + ')',
+                data: readings.map(r => {
+                    let temp = parseFloat(r.temperature);
+                    if (useFahrenheit) {
+                        temp = (temp * 9/5) + 32;
+                    }
+                    return {x: r.recorded_at, y: temp};
+                }),
                 borderColor: 'rgb(52, 152, 219)',
                 backgroundColor: 'rgba(52, 152, 219, 0.1)',
                 tension: tension,
@@ -290,7 +312,7 @@
                         intersect: false,
                         callbacks: {
                             label: function(context) {
-                                return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '°C';
+                                return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + tempUnit;
                             }
                         }
                     }
@@ -348,7 +370,7 @@
                     y: {
                         title: {
                             display: true,
-                            text: 'Temperature (°C)'
+                            text: 'Temperature (' + tempUnit + ')'
                         },
                         ticks: {
                             callback: function(value) {
@@ -431,8 +453,8 @@
     }
 
     function setThresholds(relayNumber) {
-        const tempOn = parseFloat(document.getElementById(`tempOn-${relayNumber}`).value);
-        const tempOff = parseFloat(document.getElementById(`tempOff-${relayNumber}`).value);
+        let tempOn = parseFloat(document.getElementById(`tempOn-${relayNumber}`).value);
+        let tempOff = parseFloat(document.getElementById(`tempOff-${relayNumber}`).value);
 
         if (isNaN(tempOn) || isNaN(tempOff)) {
             showMessage('Please enter valid temperature values', true);
@@ -442,6 +464,13 @@
         if (tempOn <= tempOff) {
             showMessage('ON temperature must be higher than OFF temperature', true);
             return;
+        }
+
+        // Convert from Fahrenheit to Celsius if needed (device expects Celsius)
+        const useFahrenheit = {{ $device->settings->use_fahrenheit ? 'true' : 'false' }};
+        if (useFahrenheit) {
+            tempOn = (tempOn - 32) * 5/9;
+            tempOff = (tempOff - 32) * 5/9;
         }
 
         sendCommand('set_thresholds', {
@@ -487,6 +516,11 @@
                 sendCommand('set_unit', {
                     use_fahrenheit: useFahrenheit
                 });
+
+                // Reload page after a short delay to show updated temperature unit
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
             }
         })
         .catch(error => {

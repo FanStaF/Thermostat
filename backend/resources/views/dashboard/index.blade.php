@@ -22,8 +22,16 @@
                     @if($device->latest_temp)
                         <div style="background: #e3f2fd; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
                             <div style="text-align: center;">
+                                @php
+                                    $temp = $device->latest_temp->temperature;
+                                    $unit = '°C';
+                                    if ($device->settings && $device->settings->use_fahrenheit) {
+                                        $temp = ($temp * 9/5) + 32;
+                                        $unit = '°F';
+                                    }
+                                @endphp
                                 <div style="font-size: 36px; font-weight: 700; color: #1976d2;">
-                                    {{ number_format($device->latest_temp->temperature, 1) }}°C
+                                    {{ number_format($temp, 1) }}{{ $unit }}
                                 </div>
                                 <div style="font-size: 12px; color: #666; margin-top: 5px;">
                                     {{ $device->latest_temp->recorded_at->diffForHumans() }}
@@ -130,7 +138,13 @@
                                     enabled: true,
                                     callbacks: {
                                         label: function(context) {
-                                            return context.parsed.y.toFixed(1) + '°C';
+                                            let temp = context.parsed.y;
+                                            let unit = '°C';
+                                            @if($device->settings && $device->settings->use_fahrenheit)
+                                                temp = (temp * 9/5) + 32;
+                                                unit = '°F';
+                                            @endif
+                                            return temp.toFixed(1) + unit;
                                         }
                                     }
                                 }
