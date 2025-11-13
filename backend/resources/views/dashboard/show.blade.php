@@ -182,8 +182,53 @@
                 </div>
                 <div>
                     <label style="font-weight: 600; display: block; margin-bottom: 5px;">Timezone:</label>
-                    <input type="text" id="timezone" value="{{ $device->settings->timezone }}"
-                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <select id="timezone" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="UTC" {{ $device->settings->timezone == 'UTC' ? 'selected' : '' }}>UTC+0 - Coordinated Universal Time</option>
+                        <optgroup label="Americas">
+                            <option value="Pacific/Honolulu" {{ $device->settings->timezone == 'Pacific/Honolulu' ? 'selected' : '' }}>UTC-10 - Hawaii</option>
+                            <option value="America/Anchorage" {{ $device->settings->timezone == 'America/Anchorage' ? 'selected' : '' }}>UTC-9 - Alaska</option>
+                            <option value="America/Los_Angeles" {{ $device->settings->timezone == 'America/Los_Angeles' ? 'selected' : '' }}>UTC-8/-7 - Pacific Time (US/Canada)</option>
+                            <option value="America/Phoenix" {{ $device->settings->timezone == 'America/Phoenix' ? 'selected' : '' }}>UTC-7 - Arizona (No DST)</option>
+                            <option value="America/Denver" {{ $device->settings->timezone == 'America/Denver' ? 'selected' : '' }}>UTC-7/-6 - Mountain Time (US/Canada)</option>
+                            <option value="America/Chicago" {{ $device->settings->timezone == 'America/Chicago' ? 'selected' : '' }}>UTC-6/-5 - Central Time (US/Canada)</option>
+                            <option value="America/New_York" {{ $device->settings->timezone == 'America/New_York' ? 'selected' : '' }}>UTC-5/-4 - Eastern Time (US/Canada)</option>
+                            <option value="America/Halifax" {{ $device->settings->timezone == 'America/Halifax' ? 'selected' : '' }}>UTC-4/-3 - Atlantic Time (Canada)</option>
+                            <option value="America/St_Johns" {{ $device->settings->timezone == 'America/St_Johns' ? 'selected' : '' }}>UTC-3:30 - Newfoundland</option>
+                            <option value="America/Sao_Paulo" {{ $device->settings->timezone == 'America/Sao_Paulo' ? 'selected' : '' }}>UTC-3 - Brazil (São Paulo)</option>
+                            <option value="America/Argentina/Buenos_Aires" {{ $device->settings->timezone == 'America/Argentina/Buenos_Aires' ? 'selected' : '' }}>UTC-3 - Argentina</option>
+                        </optgroup>
+                        <optgroup label="Europe & Africa">
+                            <option value="Atlantic/Cape_Verde" {{ $device->settings->timezone == 'Atlantic/Cape_Verde' ? 'selected' : '' }}>UTC-1 - Cape Verde</option>
+                            <option value="Europe/London" {{ $device->settings->timezone == 'Europe/London' ? 'selected' : '' }}>UTC+0/+1 - UK (London)</option>
+                            <option value="Europe/Dublin" {{ $device->settings->timezone == 'Europe/Dublin' ? 'selected' : '' }}>UTC+0/+1 - Ireland</option>
+                            <option value="Europe/Paris" {{ $device->settings->timezone == 'Europe/Paris' ? 'selected' : '' }}>UTC+1/+2 - Central Europe (Paris/Berlin/Rome)</option>
+                            <option value="Europe/Stockholm" {{ $device->settings->timezone == 'Europe/Stockholm' ? 'selected' : '' }}>UTC+1/+2 - Stockholm</option>
+                            <option value="Europe/Athens" {{ $device->settings->timezone == 'Europe/Athens' ? 'selected' : '' }}>UTC+2/+3 - Eastern Europe (Athens/Helsinki)</option>
+                            <option value="Europe/Istanbul" {{ $device->settings->timezone == 'Europe/Istanbul' ? 'selected' : '' }}>UTC+3 - Turkey (Istanbul)</option>
+                            <option value="Africa/Johannesburg" {{ $device->settings->timezone == 'Africa/Johannesburg' ? 'selected' : '' }}>UTC+2 - South Africa</option>
+                            <option value="Africa/Cairo" {{ $device->settings->timezone == 'Africa/Cairo' ? 'selected' : '' }}>UTC+2 - Egypt (Cairo)</option>
+                        </optgroup>
+                        <optgroup label="Middle East & Asia">
+                            <option value="Europe/Moscow" {{ $device->settings->timezone == 'Europe/Moscow' ? 'selected' : '' }}>UTC+3 - Moscow</option>
+                            <option value="Asia/Dubai" {{ $device->settings->timezone == 'Asia/Dubai' ? 'selected' : '' }}>UTC+4 - UAE (Dubai)</option>
+                            <option value="Asia/Karachi" {{ $device->settings->timezone == 'Asia/Karachi' ? 'selected' : '' }}>UTC+5 - Pakistan</option>
+                            <option value="Asia/Kolkata" {{ $device->settings->timezone == 'Asia/Kolkata' ? 'selected' : '' }}>UTC+5:30 - India</option>
+                            <option value="Asia/Dhaka" {{ $device->settings->timezone == 'Asia/Dhaka' ? 'selected' : '' }}>UTC+6 - Bangladesh</option>
+                            <option value="Asia/Bangkok" {{ $device->settings->timezone == 'Asia/Bangkok' ? 'selected' : '' }}>UTC+7 - Thailand/Vietnam</option>
+                            <option value="Asia/Singapore" {{ $device->settings->timezone == 'Asia/Singapore' ? 'selected' : '' }}>UTC+8 - Singapore/Malaysia</option>
+                            <option value="Asia/Hong_Kong" {{ $device->settings->timezone == 'Asia/Hong_Kong' ? 'selected' : '' }}>UTC+8 - Hong Kong</option>
+                            <option value="Asia/Shanghai" {{ $device->settings->timezone == 'Asia/Shanghai' ? 'selected' : '' }}>UTC+8 - China</option>
+                            <option value="Asia/Tokyo" {{ $device->settings->timezone == 'Asia/Tokyo' ? 'selected' : '' }}>UTC+9 - Japan (Tokyo)</option>
+                            <option value="Asia/Seoul" {{ $device->settings->timezone == 'Asia/Seoul' ? 'selected' : '' }}>UTC+9 - South Korea</option>
+                        </optgroup>
+                        <optgroup label="Pacific & Australia">
+                            <option value="Australia/Sydney" {{ $device->settings->timezone == 'Australia/Sydney' ? 'selected' : '' }}>UTC+10/+11 - Australia East (Sydney)</option>
+                            <option value="Australia/Adelaide" {{ $device->settings->timezone == 'Australia/Adelaide' ? 'selected' : '' }}>UTC+9:30/+10:30 - Australia Central</option>
+                            <option value="Australia/Perth" {{ $device->settings->timezone == 'Australia/Perth' ? 'selected' : '' }}>UTC+8 - Australia West (Perth)</option>
+                            <option value="Pacific/Auckland" {{ $device->settings->timezone == 'Pacific/Auckland' ? 'selected' : '' }}>UTC+12/+13 - New Zealand</option>
+                            <option value="Pacific/Fiji" {{ $device->settings->timezone == 'Pacific/Fiji' ? 'selected' : '' }}>UTC+12 - Fiji</option>
+                        </optgroup>
+                    </select>
                 </div>
             </div>
             <button class="btn" style="margin-top: 15px;" onclick="updateSettings()">
