@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Login - {{ config('app.name', 'Thermostat Monitor') }}</title>
+    <title>Login - {{ config('app.name', 'LOTR Mobile Command') }}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -98,7 +98,7 @@
 </head>
 <body>
     <div class="login-container">
-        <div class="login-title">{{ config('app.name', 'Thermostat Monitor') }}</div>
+        <div class="login-title">{{ config('app.name', 'LOTR Mobile Command') }}</div>
         <div class="login-subtitle">Sign in to access your dashboard</div>
 
         @if ($errors->any())
