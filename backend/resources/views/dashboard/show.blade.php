@@ -409,21 +409,44 @@
     function updateSettings() {
         const updateFrequency = parseInt(document.getElementById('updateFrequency').value);
         const useFahrenheit = document.getElementById('useFahrenheit').value === '1';
+        const timezone = document.getElementById('timezone').value;
 
         if (isNaN(updateFrequency) || updateFrequency < 1 || updateFrequency > 60) {
             showMessage('Update frequency must be between 1 and 60 seconds', true);
             return;
         }
 
-        sendCommand('set_frequency', {
-            frequency: updateFrequency
-        });
+        // First update settings in database
+        fetch(`/devices/${deviceId}/settings`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify({
+                update_frequency: updateFrequency,
+                use_fahrenheit: useFahrenheit,
+                timezone: timezone
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showMessage('Settings updated successfully! Sending commands to device...');
 
-        if (useFahrenheit !== {{ $device->settings->use_fahrenheit ? 'true' : 'false' }}) {
-            sendCommand('set_unit', {
-                use_fahrenheit: useFahrenheit
+            // Then send commands to device
+            sendCommand('set_frequency', {
+                frequency: updateFrequency
             });
-        }
+
+            if (useFahrenheit !== {{ $device->settings->use_fahrenheit ? 'true' : 'false' }}) {
+                sendCommand('set_unit', {
+                    use_fahrenheit: useFahrenheit
+                });
+            }
+        })
+        .catch(error => {
+            showMessage('Error updating settings: ' + error.message, true);
+        });
     }
 
     function updateDeviceName() {

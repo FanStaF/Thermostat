@@ -155,4 +155,52 @@ class DeviceController extends Controller
             'device' => $device
         ], 200);
     }
+
+    /**
+     * Update device settings
+     */
+    public function updateSettings(Request $request, $deviceId)
+    {
+        $device = Device::with('settings')->find($deviceId);
+
+        if (!$device) {
+            return response()->json(['error' => 'Device not found'], 404);
+        }
+
+        // Check permissions when called from web (has auth user)
+        if (auth()->check()) {
+            $user = auth()->user();
+
+            // Check if user has access to this device
+            if (!$user->canAccessDevice($deviceId)) {
+                return response()->json(['error' => 'You do not have permission to access this device'], 403);
+            }
+
+            // Check if user has control permissions (viewers can't edit)
+            if (!$user->canControl()) {
+                return response()->json(['error' => 'You do not have permission to edit device settings'], 403);
+            }
+        }
+
+        $validator = Validator::make($request->all(), [
+            'update_frequency' => 'nullable|integer|min:1|max:60',
+            'use_fahrenheit' => 'nullable|boolean',
+            'timezone' => 'nullable|string|max:50',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        if ($device->settings) {
+            $device->settings->update($request->only(['update_frequency', 'use_fahrenheit', 'timezone']));
+        } else {
+            $device->settings()->create($request->only(['update_frequency', 'use_fahrenheit', 'timezone']));
+        }
+
+        return response()->json([
+            'message' => 'Settings updated successfully',
+            'settings' => $device->settings
+        ], 200);
+    }
 }

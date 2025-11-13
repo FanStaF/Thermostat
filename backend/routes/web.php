@@ -27,6 +27,7 @@ Route::middleware('auth')->group(function () {
     // Web API endpoints (use session auth instead of Sanctum)
     Route::post('/devices/{device}/commands', [CommandController::class, 'store']);
     Route::patch('/devices/{device}', [DeviceController::class, 'update']);
+    Route::patch('/devices/{device}/settings', [DeviceController::class, 'updateSettings']);
     Route::patch('/devices/{device}/relays/{relay}', [RelayController::class, 'update']);
 });
 
