@@ -51,6 +51,31 @@
 </div>
 
 <div class="card">
+    <div style="text-align: center; padding: 20px;">
+        <div style="font-size: 18px; color: #666; margin-bottom: 10px;">Current Temperature</div>
+        <div style="font-size: 48px; font-weight: bold; color: #3498db;" id="currentTemp">
+            @if($readings->isNotEmpty())
+                @php
+                    $latestReading = $readings->last();
+                    $currentTemp = $latestReading->temperature;
+                    if ($device->settings && $device->settings->use_fahrenheit) {
+                        $currentTemp = ($currentTemp * 9/5) + 32;
+                    }
+                @endphp
+                {{ number_format($currentTemp, 1) }}{{ $device->settings && $device->settings->use_fahrenheit ? '°F' : '°C' }}
+            @else
+                --
+            @endif
+        </div>
+        @if($readings->isNotEmpty())
+            <div style="font-size: 14px; color: #999; margin-top: 5px;">
+                Last updated: {{ $readings->last()->recorded_at->diffForHumans() }}
+            </div>
+        @endif
+    </div>
+</div>
+
+<div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
         <div class="card-title" style="margin: 0;">Temperature History</div>
         <div class="range-buttons">

@@ -21,8 +21,8 @@ unsigned long lastCommandPoll = 0;
 TemperatureManager tempManager;
 RelayController relayController;
 ConfigManager configManager(relayController);
-WebInterface webInterface(tempManager, relayController, configManager, updateFrequency, useFahrenheit);
 ApiClient apiClient(API_URL);
+WebInterface webInterface(tempManager, relayController, configManager, apiClient, updateFrequency, useFahrenheit);
 
 void setup() {
   Serial.begin(115200);
@@ -241,6 +241,17 @@ void loop() {
                 relayController.applyRelayLogic(tempManager.getCurrentTemp());
                 configManager.saveSettings(updateFrequency, useFahrenheit);
 
+                // Send updated state back to server
+                int relayIdx = relayNum - 1;
+                apiClient.sendRelayState(
+                  relayNum,
+                  relayController.getRelayState(relayIdx),
+                  RelayController::modeToString(relayController.getRelayMode(relayIdx)),
+                  relayController.getTempOn(relayIdx),
+                  relayController.getTempOff(relayIdx),
+                  "Relay " + String(relayNum)
+                );
+
                 success = true;
                 result = "Relay " + String(relayNum) + " mode set to " + mode;
                 logger.addLog(result);
@@ -260,6 +271,17 @@ void loop() {
                 relayController.setTempThresholds(relayNum - 1, tempOn, tempOff);
                 relayController.applyRelayLogic(tempManager.getCurrentTemp());
                 configManager.saveSettings(updateFrequency, useFahrenheit);
+
+                // Send updated state back to server
+                int relayIdx = relayNum - 1;
+                apiClient.sendRelayState(
+                  relayNum,
+                  relayController.getRelayState(relayIdx),
+                  RelayController::modeToString(relayController.getRelayMode(relayIdx)),
+                  relayController.getTempOn(relayIdx),
+                  relayController.getTempOff(relayIdx),
+                  "Relay " + String(relayNum)
+                );
 
                 success = true;
                 result = "Relay " + String(relayNum) + " thresholds updated";

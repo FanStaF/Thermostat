@@ -1,11 +1,12 @@
 #include "WebInterface.h"
 
 WebInterface::WebInterface(TemperatureManager& tempMgr, RelayController& relayCtrl,
-                           ConfigManager& cfgMgr, int& updateFreq, bool& useFahr)
+                           ConfigManager& cfgMgr, ApiClient& apiCli, int& updateFreq, bool& useFahr)
   : server(WEB_SERVER_PORT),
     tempManager(tempMgr),
     relayController(relayCtrl),
     configManager(cfgMgr),
+    apiClient(apiCli),
     updateFrequency(updateFreq),
     useFahrenheit(useFahr) {
 }
@@ -31,18 +32,24 @@ void WebInterface::handleClient() {
 }
 
 void WebInterface::handleRoot() {
-  server.send(200, "text/html", generateHTML());
+  // Use chunked transfer to avoid allocating large String in RAM
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
+
+  // Send HTML in chunks directly from flash memory
+  server.sendContent_P(PSTR("<!doctype html>\n<html>\n<head>\n"));
+  server.sendContent_P(PSTR("<meta charset='utf-8'>\n"));
+  server.sendContent_P(PSTR("<meta name='viewport' content='width=device-width, initial-scale=1'>\n"));
+  server.sendContent_P(PSTR("<title>Thermostat Control</title>\n"));
+  server.sendContent(generateCSS());
+  server.sendContent_P(PSTR("</head>\n<body>\n"));
+  server.sendContent(generateBodyHTML());
+  server.sendContent(generateJavaScript());
+  server.sendContent_P(PSTR("</body>\n</html>"));
 }
 
-String WebInterface::generateHTML() {
-  return R"rawliteral(
-<!doctype html>
-<html>
-<head>
-<meta charset='utf-8'>
-<meta name='viewport' content='width=device-width, initial-scale=1'>
-<title>Thermostat Control</title>
-<style>
+String WebInterface::generateCSS() {
+  return R"rawliteral(<style>
   body { font-family: Arial; text-align: center; background: #f5f5f5; }
   h1 { color: #333; }
   .temp { font-size: 28px; font-weight: bold; color: #2196F3; margin: 20px 0; }
@@ -60,7 +67,11 @@ String WebInterface::generateHTML() {
   input[type="number"] { width: 60px; padding: 6px; text-align: center; border: 1px solid #ddd; border-radius: 4px; }
   #chart-container { width: 90%; max-width: 800px; height: 300px; margin: 30px auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 </style>
-</head>
+)rawliteral";
+}
+
+String WebInterface::generateBodyHTML() {
+  return R"rawliteral(
 <body>
   <h1>Thermostat Control</h1>
   <div style='margin-bottom:15px;'>
@@ -147,7 +158,11 @@ String WebInterface::generateHTML() {
   <div id='chart-container'>
     <canvas id='tempChart'></canvas>
   </div>
+)rawliteral";
+}
 
+String WebInterface::generateJavaScript() {
+  return R"rawliteral(
 <script src='https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js'></script>
 <script>
 // Track which inputs have been edited - persist until Save is clicked
@@ -164,10 +179,16 @@ function fahrenheitToCelsius(f) {
 }
 
 async function toggleUnit() {
-  useFahrenheit = !useFahrenheit;
-  await fetch('/setunit?fahrenheit=' + (useFahrenheit ? '1' : '0'));
-  updateUnitLabels();
-  updateStatus();
+  try {
+    useFahrenheit = !useFahrenheit;
+    const res = await fetch('/setunit?fahrenheit=' + (useFahrenheit ? '1' : '0'));
+    const data = await res.json();
+    updateUnitLabels();
+    updateFromData(data);
+  } catch (error) {
+    console.error('Error toggling unit:', error);
+    await updateStatus();
+  }
 }
 
 function updateUnitLabels() {
@@ -190,39 +211,60 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 async function setMode(relay, mode) {
-  await fetch('/setmode?relay=' + relay + '&mode=' + mode);
-  updateStatus();
+  try {
+    const res = await fetch('/setmode?relay=' + relay + '&mode=' + mode);
+    const data = await res.json();
+    // Use the response from setmode directly to update UI
+    updateFromData(data);
+  } catch (error) {
+    console.error('Error setting mode:', error);
+    // Fallback to fetching status
+    await updateStatus();
+  }
 }
 
 async function saveThreshold(relay) {
-  let on = parseFloat(document.getElementById('on' + relay).value);
-  let off = parseFloat(document.getElementById('off' + relay).value);
+  try {
+    let on = parseFloat(document.getElementById('on' + relay).value);
+    let off = parseFloat(document.getElementById('off' + relay).value);
 
-  // Convert to Celsius if displaying in Fahrenheit
-  if (useFahrenheit) {
-    on = fahrenheitToCelsius(on);
-    off = fahrenheitToCelsius(off);
+    // Convert to Celsius if displaying in Fahrenheit
+    if (useFahrenheit) {
+      on = fahrenheitToCelsius(on);
+      off = fahrenheitToCelsius(off);
+    }
+
+    const res = await fetch('/setthresholds?relay=' + relay + '&on=' + on + '&off=' + off);
+    const data = await res.json();
+    // Clear edited flags for this relay's inputs after saving
+    editedInputs.delete('on' + relay);
+    editedInputs.delete('off' + relay);
+    // Use the response from setthresholds directly to update UI
+    updateFromData(data);
+  } catch (error) {
+    console.error('Error saving threshold:', error);
+    await updateStatus();
   }
-
-  await fetch('/setthresholds?relay=' + relay + '&on=' + on + '&off=' + off);
-  // Clear edited flags for this relay's inputs after saving
-  editedInputs.delete('on' + relay);
-  editedInputs.delete('off' + relay);
-  updateStatus();
 }
 
 async function setFrequency() {
-  const freq = parseInt(document.getElementById('freq').value);
-  if (isNaN(freq) || freq < 5) {
-    alert('Minimum frequency is 5 seconds');
-    return;
+  try {
+    const freq = parseInt(document.getElementById('freq').value);
+    if (isNaN(freq) || freq < 5) {
+      alert('Minimum frequency is 5 seconds');
+      return;
+    }
+    if (freq > 300) {
+      alert('Maximum frequency is 300 seconds');
+      return;
+    }
+    const res = await fetch('/setfreq?sec=' + freq);
+    const data = await res.json();
+    updateFromData(data);
+  } catch (error) {
+    console.error('Error setting frequency:', error);
+    await updateStatus();
   }
-  if (freq > 300) {
-    alert('Maximum frequency is 300 seconds');
-    return;
-  }
-  await fetch('/setfreq?sec=' + freq);
-  updateStatus();
 }
 
 async function clearData() {
@@ -245,10 +287,8 @@ async function clearData() {
   }
 }
 
-async function updateStatus() {
-  const res = await fetch('/status');
-  const data = await res.json();
-
+// Extract UI update logic so it can be reused
+function updateFromData(data) {
   // Update unit preference if it changed on server
   if (data.useFahrenheit !== undefined && data.useFahrenheit !== useFahrenheit) {
     useFahrenheit = data.useFahrenheit;
@@ -288,6 +328,16 @@ async function updateStatus() {
     if (document.activeElement !== offInput && !editedInputs.has('off' + i)) {
       offInput.value = displayTempOff.toFixed(1);
     }
+  }
+}
+
+async function updateStatus() {
+  try {
+    const res = await fetch('/status');
+    const data = await res.json();
+    updateFromData(data);
+  } catch (error) {
+    console.error('Error updating status:', error);
   }
 }
 
@@ -406,8 +456,6 @@ setInterval(updateStatus, 2000);
 updateChart();
 setInterval(updateChart, 30000); // Update chart every 30 seconds
 </script>
-</body>
-</html>
 )rawliteral";
 }
 
@@ -438,6 +486,18 @@ void WebInterface::handleSetMode() {
       logger.addLog("Relay " + String(relay + 1) + " mode: " + mode);
       relayController.applyRelayLogic(tempManager.getCurrentTemp());
       configManager.saveSettings(updateFrequency, useFahrenheit);
+
+      // Send updated relay state to API
+      if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
+        apiClient.sendRelayState(
+          relay + 1,
+          relayController.getRelayState(relay),
+          RelayController::modeToString(relayController.getRelayMode(relay)),
+          relayController.getTempOn(relay),
+          relayController.getTempOff(relay),
+          "Relay " + String(relay + 1)
+        );
+      }
     }
   }
   handleStatus();
@@ -454,6 +514,18 @@ void WebInterface::handleSetThresholds() {
                     String(tempOn, 1) + "C, OFF=" + String(tempOff, 1) + "C");
       relayController.applyRelayLogic(tempManager.getCurrentTemp());
       configManager.saveSettings(updateFrequency, useFahrenheit);
+
+      // Send updated relay state to API
+      if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
+        apiClient.sendRelayState(
+          relay + 1,
+          relayController.getRelayState(relay),
+          RelayController::modeToString(relayController.getRelayMode(relay)),
+          relayController.getTempOn(relay),
+          relayController.getTempOff(relay),
+          "Relay " + String(relay + 1)
+        );
+      }
     }
   }
   handleStatus();
@@ -468,7 +540,7 @@ void WebInterface::handleSetFrequency() {
     logger.addLog("Update frequency set to " + String(sec) + "s");
     configManager.saveSettings(updateFrequency, useFahrenheit);
   }
-  server.send(200, "application/json", "{\"freq\":" + String(updateFrequency) + "}");
+  handleStatus();
 }
 
 void WebInterface::handleClearData() {

@@ -9,11 +9,12 @@
 #include "TemperatureManager.h"
 #include "RelayController.h"
 #include "ConfigManager.h"
+#include "ApiClient.h"
 
 class WebInterface {
 public:
   WebInterface(TemperatureManager& tempMgr, RelayController& relayCtrl,
-               ConfigManager& cfgMgr, int& updateFreq, bool& useFahr);
+               ConfigManager& cfgMgr, ApiClient& apiCli, int& updateFreq, bool& useFahr);
 
   void begin();
   void handleClient();
@@ -23,6 +24,7 @@ private:
   TemperatureManager& tempManager;
   RelayController& relayController;
   ConfigManager& configManager;
+  ApiClient& apiClient;
   int& updateFrequency;
   bool& useFahrenheit;
 
@@ -37,8 +39,11 @@ private:
   void handleLogs();
   void handleData();
 
-  // HTML generation
+  // HTML generation (split into chunks to reduce memory usage)
   String generateHTML();
+  String generateCSS();
+  String generateBodyHTML();
+  String generateJavaScript();
 };
 
 #endif // WEB_INTERFACE_H
