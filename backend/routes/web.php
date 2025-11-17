@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Web\AlertsController;
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\ProfileController;
@@ -23,6 +24,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::patch('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password.update');
+
+    // Alerts Routes
+    Route::get('/alerts', [AlertsController::class, 'index'])->name('alerts.index');
 
     // Web API endpoints (use session auth instead of Sanctum)
     Route::post('/devices/{device}/commands', [CommandController::class, 'store']);

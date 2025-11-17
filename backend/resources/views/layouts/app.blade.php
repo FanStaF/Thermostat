@@ -92,6 +92,9 @@
                             Users
                         </a>
                     @endif
+                    <a href="{{ route('alerts.index') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('alerts.*') ? '600' : '400' }};">
+                        Alerts
+                    </a>
                     <a href="{{ route('profile.edit') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('profile.*') ? '600' : '400' }};">
                         Profile
                     </a>
