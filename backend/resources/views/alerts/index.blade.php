@@ -240,7 +240,13 @@ async function subscribe(alertType) {
             showMessage('Subscription created successfully!');
             setTimeout(() => window.location.reload(), 1000);
         } else {
-            showMessage(data.error || 'Failed to create subscription', true);
+            // Handle validation errors or general errors
+            let errorMsg = data.error || 'Failed to create subscription';
+            if (data.errors) {
+                errorMsg = Object.values(data.errors).flat().join(', ');
+            }
+            console.error('Subscription error:', data);
+            showMessage(errorMsg, true);
         }
     } catch (error) {
         showMessage('Error: ' + error.message, true);
