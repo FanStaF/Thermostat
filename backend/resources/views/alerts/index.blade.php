@@ -147,9 +147,13 @@
                         @if($isSubscribed)
                             <div style="display: flex; gap: 5px; justify-content: center;">
                                 @if(auth()->user()->isAdmin())
-                                    <button class="btn" onclick="testAlert({{ $subscription->id }})"
+                                    @php
+                                        $isReport = in_array($subscription->alert_type->value, ['daily_summary', 'weekly_summary']);
+                                        $buttonText = $isReport ? 'Send Report' : 'Test';
+                                    @endphp
+                                    <button class="btn" onclick="testAlert({{ $subscription->id }}, {{ $isReport ? 'true' : 'false' }})"
                                             style="padding: 4px 8px; font-size: 12px; background: #3498db; color: white;">
-                                        Test
+                                        {{ $buttonText }}
                                     </button>
                                 @endif
                                 <button class="btn btn-danger" onclick="deleteSubscription({{ $subscription->id }})"
@@ -304,12 +308,17 @@ async function deleteSubscription(id) {
     }
 }
 
-async function testAlert(id) {
-    if (!confirm('Send a test alert email for this subscription?')) {
+async function testAlert(id, isReport = false) {
+    const confirmMsg = isReport
+        ? 'Send report email with real data from the last 24h/week?'
+        : 'Send a test alert email for this subscription?';
+
+    if (!confirm(confirmMsg)) {
         return;
     }
 
-    showMessage('Sending test alert...', false);
+    const loadingMsg = isReport ? 'Generating and sending report...' : 'Sending test alert...';
+    showMessage(loadingMsg, false);
 
     try {
         const response = await fetch(`/alert-subscriptions/${id}/test`, {
@@ -324,9 +333,15 @@ async function testAlert(id) {
         const data = await response.json();
 
         if (response.ok) {
-            showMessage(`Test alert sent to ${data.email_sent_to}`, false);
+            const successMsg = isReport
+                ? `Report sent to ${data.email_sent_to}`
+                : `Test alert sent to ${data.email_sent_to}`;
+            showMessage(successMsg, false);
         } else {
-            showMessage(data.error || 'Failed to send test alert', true);
+            const errorMsg = isReport
+                ? (data.error || 'Failed to send report')
+                : (data.error || 'Failed to send test alert');
+            showMessage(errorMsg, true);
         }
     } catch (error) {
         showMessage('Error: ' + error.message, true);

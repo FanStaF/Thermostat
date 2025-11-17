@@ -9,7 +9,14 @@
 @if($alertLog->data)
 ## Details
 
+@if(isset($alertLog->data['temperature_chart']) && $alertLog->data['temperature_chart'])
+![Temperature Chart]({{ $alertLog->data['temperature_chart'] }})
+@endif
+
 @foreach($alertLog->data as $key => $value)
+@if($key === 'temperature_chart')
+@continue
+@endif
 @if(is_array($value))
 **{{ ucfirst(str_replace('_', ' ', $key)) }}:**
 @foreach($value as $subKey => $subValue)

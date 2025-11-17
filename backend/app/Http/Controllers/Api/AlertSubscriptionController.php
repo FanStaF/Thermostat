@@ -251,17 +251,26 @@ class AlertSubscriptionController extends Controller
             return response()->json(['error' => 'User has no email configured'], 400);
         }
 
-        // Create a test alert log
-        $device = $subscription->device ?? \App\Models\Device::first();
+        // Use AlertEvaluator to generate real data
+        $evaluator = new \App\Services\AlertEvaluator();
 
-        $testMessage = $this->generateTestMessage($subscription, $device);
+        // For reports, use real data from last 24h/week
+        if (in_array($subscription->alert_type->value, ['daily_summary', 'weekly_summary'])) {
+            $testResult = $this->generateRealReportData($subscription, $evaluator);
+        } else {
+            $testResult = $this->generateRealAlertData($subscription, $evaluator);
+        }
+
+        if (!$testResult) {
+            return response()->json(['error' => 'Could not generate test data - no device data available'], 400);
+        }
 
         $alertLog = \App\Models\AlertLog::create([
             'alert_subscription_id' => $subscription->id,
-            'device_id' => $device?->id,
+            'device_id' => $testResult['device_id'],
             'triggered_at' => now(),
-            'message' => $testMessage['message'],
-            'data' => array_merge($testMessage['metadata'], ['test' => true]),
+            'message' => $testResult['message'],
+            'data' => array_merge($testResult['metadata'], ['test' => true]),
         ]);
 
         // Send email immediately
@@ -272,6 +281,204 @@ class AlertSubscriptionController extends Controller
             'alert_log' => $alertLog,
             'email_sent_to' => $subscription->user->email,
         ]);
+    }
+
+    private function generateRealAlertData($subscription, $evaluator): ?array
+    {
+        $device = $subscription->device ?? \App\Models\Device::with(['relays.currentState', 'temperatureReadings'])->first();
+
+        if (!$device) {
+            return null;
+        }
+
+        // Get current device state
+        $latestReading = $device->temperatureReadings()->latest('recorded_at')->first();
+        $deviceState = $this->getDeviceStateData($device);
+
+        $message = "TEST: {$subscription->alert_type->label()} - Current State";
+
+        return [
+            'device_id' => $device->id,
+            'message' => $message,
+            'metadata' => array_merge([
+                'alert_type' => $subscription->alert_type->label(),
+                'current_temperature' => $latestReading ? round($latestReading->temperature, 1) . '°C' : 'N/A',
+            ], $deviceState),
+        ];
+    }
+
+    private function generateRealReportData($subscription, $evaluator): ?array
+    {
+        $device = $subscription->device ?? \App\Models\Device::with(['relays'])->first();
+
+        if (!$device) {
+            return null;
+        }
+
+        // Use real calculation methods from evaluator
+        if ($subscription->alert_type->value === 'daily_summary') {
+            $stats = $this->calculateTestDailyStats($device);
+            $message = "TEST: Daily Summary for {$device->name} (Last 24 Hours)";
+        } else {
+            $stats = $this->calculateTestWeeklyStats($device);
+            $message = "TEST: Weekly Summary for {$device->name} (Last 7 Days)";
+        }
+
+        if (!$stats) {
+            return null;
+        }
+
+        // Add temperature chart
+        $stats['temperature_chart'] = $this->generateTempChartUrl($device, $subscription->alert_type->value);
+
+        return [
+            'device_id' => $device->id,
+            'message' => $message,
+            'metadata' => $stats,
+        ];
+    }
+
+    private function calculateTestDailyStats($device): ?array
+    {
+        $readings = $device->temperatureReadings()
+            ->where('recorded_at', '>', now()->subDay())
+            ->get();
+
+        if ($readings->isEmpty()) {
+            return null;
+        }
+
+        $temps = $readings->pluck('temperature');
+
+        $relayStats = [];
+        foreach ($device->relays as $relay) {
+            $onTime = \App\Models\RelayStateHistory::where('relay_id', $relay->id)
+                ->where('changed_at', '>', now()->subDay())
+                ->where('state', true)
+                ->count();
+
+            $relayStats[$relay->name] = $this->formatDuration($onTime * 60);
+        }
+
+        return [
+            'device_name' => $device->name,
+            'period' => 'Last 24 Hours',
+            'avg_temperature' => round($temps->avg(), 1) . '°C',
+            'min_temperature' => round($temps->min(), 1) . '°C',
+            'max_temperature' => round($temps->max(), 1) . '°C',
+            'total_readings' => $readings->count(),
+            'relay_activity' => $relayStats,
+        ];
+    }
+
+    private function calculateTestWeeklyStats($device): ?array
+    {
+        $readings = $device->temperatureReadings()
+            ->where('recorded_at', '>', now()->subWeek())
+            ->get();
+
+        if ($readings->isEmpty()) {
+            return null;
+        }
+
+        $temps = $readings->pluck('temperature');
+
+        $relayStats = [];
+        foreach ($device->relays as $relay) {
+            $onTime = \App\Models\RelayStateHistory::where('relay_id', $relay->id)
+                ->where('changed_at', '>', now()->subWeek())
+                ->where('state', true)
+                ->count();
+
+            $relayStats[$relay->name] = $this->formatDuration($onTime * 60);
+        }
+
+        return [
+            'device_name' => $device->name,
+            'period' => 'Last 7 Days',
+            'avg_temperature' => round($temps->avg(), 1) . '°C',
+            'min_temperature' => round($temps->min(), 1) . '°C',
+            'max_temperature' => round($temps->max(), 1) . '°C',
+            'total_readings' => $readings->count(),
+            'relay_activity' => $relayStats,
+        ];
+    }
+
+    private function generateTempChartUrl($device, $alertType): string
+    {
+        $period = $alertType === 'daily_summary' ? now()->subDay() : now()->subWeek();
+
+        $readings = $device->temperatureReadings()
+            ->where('recorded_at', '>', $period)
+            ->orderBy('recorded_at')
+            ->get();
+
+        if ($readings->isEmpty()) {
+            return '';
+        }
+
+        // Prepare data for QuickChart
+        $labels = [];
+        $temps = [];
+
+        foreach ($readings as $reading) {
+            $labels[] = $reading->recorded_at->format('H:i');
+            $temps[] = round($reading->temperature, 1);
+        }
+
+        // Build QuickChart URL
+        $chartConfig = [
+            'type' => 'line',
+            'data' => [
+                'labels' => $labels,
+                'datasets' => [[
+                    'label' => 'Temperature (°C)',
+                    'data' => $temps,
+                    'borderColor' => 'rgb(54, 162, 235)',
+                    'backgroundColor' => 'rgba(54, 162, 235, 0.1)',
+                    'tension' => 0.4,
+                ]],
+            ],
+            'options' => [
+                'title' => [
+                    'display' => true,
+                    'text' => $device->name . ' Temperature',
+                ],
+                'scales' => [
+                    'yAxes' => [[
+                        'scaleLabel' => [
+                            'display' => true,
+                            'labelString' => 'Temperature (°C)',
+                        ],
+                    ]],
+                ],
+            ],
+        ];
+
+        return 'https://quickchart.io/chart?c=' . urlencode(json_encode($chartConfig)) . '&width=600&height=300';
+    }
+
+    private function getDeviceStateData($device): array
+    {
+        $state = [
+            'last_seen' => $device->last_seen->format('M j, Y g:i A'),
+            'online' => $device->last_seen > now()->subMinutes(5) ? 'Yes' : 'No',
+        ];
+
+        foreach ($device->relays as $relay) {
+            $currentState = $relay->currentState;
+            $state['relay_' . $relay->name . '_state'] = $currentState ? ($currentState->state ? 'ON' : 'OFF') : 'Unknown';
+            $state['relay_' . $relay->name . '_mode'] = $relay->mode ?? 'manual';
+        }
+
+        return $state;
+    }
+
+    private function formatDuration(int $seconds): string
+    {
+        $hours = floor($seconds / 3600);
+        $minutes = floor(($seconds % 3600) / 60);
+        return sprintf('%dh %dm', $hours, $minutes);
     }
 
     private function generateTestMessage($subscription, $device)
