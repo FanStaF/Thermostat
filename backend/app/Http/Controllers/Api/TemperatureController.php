@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\TemperatureUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\TemperatureReading;
@@ -39,6 +40,14 @@ class TemperatureController extends Controller
 
         // Update device last_seen_at
         $device->update(['last_seen_at' => now()]);
+
+        // Broadcast temperature update event
+        broadcast(new TemperatureUpdated(
+            $deviceId,
+            $reading->temperature,
+            $reading->humidity ?? null,
+            $reading->recorded_at->toISOString()
+        ));
 
         return response()->json([
             'message' => 'Temperature reading stored',

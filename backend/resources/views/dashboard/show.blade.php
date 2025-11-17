@@ -412,12 +412,87 @@
             }
         };
 
-        new Chart(ctx, config);
+        const chart = new Chart(ctx, config);
 
-        // Auto-refresh every 30 seconds
+        // WebSocket real-time updates
+        if (window.Echo) {
+            const deviceId = {{ $device->id }};
+            const useFahrenheit = {{ $device->settings->use_fahrenheit ? 'true' : 'false' }};
+            const tempUnit = useFahrenheit ? '°F' : '°C';
+
+            // Subscribe to device channel
+            window.Echo.channel(`device.${deviceId}`)
+                .listen('.temperature.updated', (event) => {
+                    console.log('Temperature update received:', event);
+
+                    // Update current temperature display
+                    let temp = parseFloat(event.temperature);
+                    if (useFahrenheit) {
+                        temp = (temp * 9/5) + 32;
+                    }
+                    document.getElementById('currentTemp').innerHTML =
+                        temp.toFixed(1) + tempUnit;
+
+                    // Add new data point to chart
+                    const newDataPoint = {
+                        x: event.recordedAt,
+                        y: temp
+                    };
+                    chart.data.datasets[0].data.push(newDataPoint);
+                    chart.data.labels.push(event.recordedAt);
+
+                    // Keep only last 1000 points to prevent memory issues
+                    if (chart.data.datasets[0].data.length > 1000) {
+                        chart.data.datasets[0].data.shift();
+                        chart.data.labels.shift();
+                    }
+
+                    chart.update();
+                })
+                .listen('.relay.updated', (event) => {
+                    console.log('Relay update received:', event);
+
+                    // Update relay state badge
+                    const stateBadge = document.getElementById(`state-${event.relayNumber}`);
+                    if (stateBadge) {
+                        stateBadge.textContent = event.state ? 'ON' : 'OFF';
+                        stateBadge.className = `relay-badge ${event.state ? 'on' : 'off'}`;
+                    }
+
+                    // Update mode buttons
+                    const card = document.querySelector(`[data-relay-number="${event.relayNumber}"]`);
+                    if (card) {
+                        card.querySelectorAll('.mode-btn').forEach(btn => {
+                            btn.classList.remove('active');
+                            if (btn.dataset.mode === event.mode) {
+                                btn.classList.add('active');
+                            }
+                        });
+
+                        // Update threshold displays if not in edit mode
+                        let tempOnDisplay = parseFloat(event.tempOn);
+                        let tempOffDisplay = parseFloat(event.tempOff);
+                        if (useFahrenheit) {
+                            tempOnDisplay = (tempOnDisplay * 9/5) + 32;
+                            tempOffDisplay = (tempOffDisplay * 9/5) + 32;
+                        }
+
+                        const tempOnInput = document.getElementById(`tempOn-${event.relayNumber}`);
+                        const tempOffInput = document.getElementById(`tempOff-${event.relayNumber}`);
+                        if (tempOnInput && tempOffInput) {
+                            tempOnInput.value = tempOnDisplay.toFixed(1);
+                            tempOffInput.value = tempOffDisplay.toFixed(1);
+                        }
+                    }
+                });
+        }
+
+        // Fallback: Auto-refresh every 2 minutes if WebSocket fails
         setInterval(() => {
-            window.location.reload();
-        }, 30000);
+            if (!window.Echo || !window.Echo.connector.pusher.connection.state === 'connected') {
+                window.location.reload();
+            }
+        }, 120000);
     });
 
     // Command sending functions
