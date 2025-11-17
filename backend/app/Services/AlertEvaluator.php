@@ -74,12 +74,12 @@ class AlertEvaluator
                     'triggered' => true,
                     'device_id' => $device->id,
                     'message' => "Temperature {$reading->temperature}°C is below threshold {$threshold}°C on {$device->name}",
-                    'metadata' => [
+                    'metadata' => array_merge([
                         'temperature' => $reading->temperature,
                         'threshold' => $threshold,
                         'device_name' => $device->name,
-                        'recorded_at' => $reading->recorded_at->toIso8601String(),
-                    ],
+                        'recorded_at' => $reading->recorded_at->format('M j, Y g:i A'),
+                    ], $this->getDeviceState($device)),
                 ];
             }
         }

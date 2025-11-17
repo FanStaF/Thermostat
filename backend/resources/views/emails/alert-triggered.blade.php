@@ -10,7 +10,14 @@
 ## Details
 
 @foreach($alertLog->metadata as $key => $value)
-- **{{ ucfirst(str_replace('_', ' ', $key)) }}:** {{ is_string($value) || is_numeric($value) ? $value : json_encode($value) }}
+@if(is_array($value))
+**{{ ucfirst(str_replace('_', ' ', $key)) }}:**
+@foreach($value as $subKey => $subValue)
+  - {{ ucfirst(str_replace('_', ' ', $subKey)) }}: {{ $subValue }}
+@endforeach
+@else
+- **{{ ucfirst(str_replace('_', ' ', $key)) }}:** {{ $value }}
+@endif
 @endforeach
 @endif
 
