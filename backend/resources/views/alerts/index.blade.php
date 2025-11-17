@@ -221,6 +221,7 @@ async function subscribe(alertType) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
             },
             body: JSON.stringify({
@@ -254,6 +255,7 @@ async function toggleEnabled(id) {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
             },
             body: JSON.stringify({ enabled })
@@ -280,6 +282,7 @@ async function deleteSubscription(id) {
         const response = await fetch(`/alert-subscriptions/${id}`, {
             method: 'DELETE',
             headers: {
+                'Accept': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
             }
         });
