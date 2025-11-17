@@ -6,10 +6,10 @@
 **Device:** {{ $device->name ?? 'All devices' }}
 **Time:** {{ $alertLog->triggered_at->format('M j, Y g:i A') }}
 
-@if($alertLog->metadata)
+@if($alertLog->data)
 ## Details
 
-@foreach($alertLog->metadata as $key => $value)
+@foreach($alertLog->data as $key => $value)
 @if(is_array($value))
 **{{ ucfirst(str_replace('_', ' ', $key)) }}:**
 @foreach($value as $subKey => $subValue)

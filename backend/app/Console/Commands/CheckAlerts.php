@@ -52,7 +52,7 @@ class CheckAlerts extends Command
                             'device_id' => $result['device_id'],
                             'triggered_at' => now(),
                             'message' => $result['message'],
-                            'metadata' => $result['metadata'],
+                            'data' => $result['metadata'],
                         ]);
 
                         // Queue email

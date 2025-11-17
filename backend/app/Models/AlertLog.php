@@ -12,6 +12,7 @@ class AlertLog extends Model
         'device_id',
         'triggered_at',
         'resolved_at',
+        'message',
         'data',
     ];
 

@@ -261,7 +261,7 @@ class AlertSubscriptionController extends Controller
             'device_id' => $device?->id,
             'triggered_at' => now(),
             'message' => $testMessage['message'],
-            'metadata' => array_merge($testMessage['metadata'], ['test' => true]),
+            'data' => array_merge($testMessage['metadata'], ['test' => true]),
         ]);
 
         // Send email immediately
