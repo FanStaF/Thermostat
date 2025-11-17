@@ -37,7 +37,7 @@ class CheckAlerts extends Command
 
                 if ($result && $result['triggered']) {
                     // Check if we already sent this alert recently (cooldown)
-                    $cooldownMinutes = $this->getCooldownMinutes($subscription->alert_type);
+                    $cooldownMinutes = $subscription->cooldown_minutes;
 
                     $recentAlert = AlertLog::where('alert_subscription_id', $subscription->id)
                         ->where('device_id', $result['device_id'])
@@ -84,20 +84,5 @@ class CheckAlerts extends Command
         $this->info("- Resolved {$resolvedCount} alerts");
 
         return 0;
-    }
-
-    private function getCooldownMinutes($alertType): int
-    {
-        // Different alert types have different cooldown periods
-        return match ($alertType->value) {
-            'temp_high', 'temp_low' => 30,
-            'temp_rapid_change' => 60,
-            'device_offline', 'device_not_reporting' => 15,
-            'device_online' => 5,
-            'relay_state_changed', 'relay_mode_changed' => 10,
-            'relay_stuck' => 120,
-            'relay_cycling' => 60,
-            default => 30,
-        };
     }
 }

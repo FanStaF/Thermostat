@@ -48,6 +48,8 @@
                     <th style="padding: 12px; text-align: left;">Description</th>
                     <th style="padding: 12px; text-align: center; width: 120px;">Device</th>
                     <th style="padding: 12px; text-align: center; width: 100px;">Settings</th>
+                    <th style="padding: 12px; text-align: center; width: 100px;">Cooldown (min)</th>
+                    <th style="padding: 12px; text-align: center; width: 100px;">Schedule</th>
                     <th style="padding: 12px; text-align: center; width: 100px;">Status</th>
                     <th style="padding: 12px; text-align: center; width: 100px;">Action</th>
                 </tr>
@@ -94,6 +96,30 @@
                             @if($type['can_subscribe'] && in_array($type['value'], ['temp_high', 'temp_low']))
                                 <input type="number" id="threshold-{{ $type['value'] }}" 
                                        placeholder="°C" style="width: 60px; padding: 4px; font-size: 12px;">
+                            @else
+                                -
+                            @endif
+                        @endif
+                    </td>
+                    <td style="padding: 12px; text-align: center;">
+                        @if($isSubscribed)
+                            {{ $subscription->cooldown_minutes }}
+                        @else
+                            @if($type['can_subscribe'])
+                                <input type="number" id="cooldown-{{ $type['value'] }}"
+                                       value="30" style="width: 60px; padding: 4px; font-size: 12px;">
+                            @else
+                                -
+                            @endif
+                        @endif
+                    </td>
+                    <td style="padding: 12px; text-align: center;">
+                        @if($isSubscribed)
+                            {{ $subscription->scheduled_time ?? '-' }}
+                        @else
+                            @if($type['can_subscribe'] && in_array($type['value'], ['daily_summary', 'weekly_summary']))
+                                <input type="time" id="schedule-{{ $type['value'] }}"
+                                       value="09:00" style="width: 100px; padding: 4px; font-size: 12px;">
                             @else
                                 -
                             @endif
@@ -174,6 +200,14 @@ async function subscribe(alertType) {
         settings.threshold = parseFloat(thresholdInput.value);
     }
 
+    // Get cooldown
+    const cooldownInput = document.getElementById(`cooldown-${alertType}`);
+    const cooldownMinutes = cooldownInput ? parseInt(cooldownInput.value) : 30;
+
+    // Get scheduled time if applicable
+    const scheduleInput = document.getElementById(`schedule-${alertType}`);
+    const scheduledTime = scheduleInput ? scheduleInput.value : null;
+
     try {
         const response = await fetch('/alert-subscriptions', {
             method: 'POST',
@@ -185,7 +219,9 @@ async function subscribe(alertType) {
                 user_id: targetUserId,
                 alert_type: alertType,
                 device_id: deviceId,
-                settings: Object.keys(settings).length > 0 ? settings : null
+                settings: Object.keys(settings).length > 0 ? settings : null,
+                cooldown_minutes: cooldownMinutes,
+                scheduled_time: scheduledTime
             })
         });
 

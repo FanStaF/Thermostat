@@ -81,6 +81,8 @@ class AlertSubscriptionController extends Controller
             'alert_type' => 'required|string',
             'enabled' => 'boolean',
             'settings' => 'nullable|array',
+            'cooldown_minutes' => 'nullable|integer|min:1|max:1440',
+            'scheduled_time' => 'nullable|date_format:H:i',
         ]);
 
         if ($validator->fails()) {
@@ -122,6 +124,8 @@ class AlertSubscriptionController extends Controller
             'alert_type' => $request->alert_type,
             'enabled' => $request->input('enabled', true),
             'settings' => $request->settings,
+            'cooldown_minutes' => $request->input('cooldown_minutes', 30),
+            'scheduled_time' => $request->scheduled_time,
         ]);
 
         return response()->json([

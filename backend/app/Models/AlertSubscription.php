@@ -15,12 +15,15 @@ class AlertSubscription extends Model
         'alert_type',
         'enabled',
         'settings',
+        'cooldown_minutes',
+        'scheduled_time',
     ];
 
     protected $casts = [
         'enabled' => 'boolean',
         'settings' => 'array',
         'alert_type' => AlertType::class,
+        'cooldown_minutes' => 'integer',
     ];
 
     public function user(): BelongsTo
