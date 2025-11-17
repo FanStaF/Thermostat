@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AlertSubscriptionController;
 use App\Http\Controllers\Api\CommandController;
 use App\Http\Controllers\Api\DeviceController;
 use App\Http\Controllers\Api\RelayController;
@@ -40,4 +41,12 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::post('/devices/{device}/commands', [CommandController::class, 'store']);
     Route::put('/devices/{device}/commands/{command}', [CommandController::class, 'update']);
     Route::get('/devices/{device}/commands', [CommandController::class, 'index']);
+
+    // Alert Subscriptions
+    Route::get('/alert-types', [AlertSubscriptionController::class, 'types']);
+    Route::get('/alert-subscriptions', [AlertSubscriptionController::class, 'index']);
+    Route::post('/alert-subscriptions', [AlertSubscriptionController::class, 'store']);
+    Route::patch('/alert-subscriptions/{id}', [AlertSubscriptionController::class, 'update']);
+    Route::delete('/alert-subscriptions/{id}', [AlertSubscriptionController::class, 'destroy']);
+    Route::get('/alert-logs', [AlertSubscriptionController::class, 'logs']);
 });
