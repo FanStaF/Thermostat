@@ -33,6 +33,11 @@ Route::middleware('auth')->group(function () {
     Route::patch('/devices/{device}', [DeviceController::class, 'update']);
     Route::patch('/devices/{device}/settings', [DeviceController::class, 'updateSettings']);
     Route::patch('/devices/{device}/relays/{relay}', [RelayController::class, 'update']);
+
+    // Alert subscription endpoints (web session auth)
+    Route::post('/alert-subscriptions', [\App\Http\Controllers\Api\AlertSubscriptionController::class, 'store']);
+    Route::patch('/alert-subscriptions/{id}', [\App\Http\Controllers\Api\AlertSubscriptionController::class, 'update']);
+    Route::delete('/alert-subscriptions/{id}', [\App\Http\Controllers\Api\AlertSubscriptionController::class, 'destroy']);
 });
 
 // Admin Only Routes

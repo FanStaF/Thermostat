@@ -5,7 +5,17 @@
 
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h1 style="margin: 0;">Alert Subscriptions</h1>
+        <div>
+            <h1 style="margin: 0 0 10px 0;">Alert Subscriptions</h1>
+            <p style="color: #666; margin: 0;">
+                Managing alerts for: <strong>{{ $targetUser->name }}</strong>
+                @if($targetUser->email)
+                    ({{ $targetUser->email }})
+                @else
+                    <span style="color: #e74c3c; font-weight: bold;">⚠ No email - alerts won't be sent</span>
+                @endif
+            </p>
+        </div>
         
         @if(auth()->user()->role === 'admin' && $users->count() > 1)
             <select id="userSelect" onchange="changeUser()" style="padding: 8px; border-radius: 4px; border: 1px solid #ddd;">
@@ -17,57 +27,115 @@
             </select>
         @endif
     </div>
-
-    <p style="color: #666; margin-bottom: 20px;">
-        Managing alerts for: <strong>{{ $targetUser->name }}</strong> 
-        @if($targetUser->email)
-            ({{ $targetUser->email }})
-        @else
-            <span style="color: #e74c3c;">(No email set - alerts won't be sent)</span>
-        @endif
-    </p>
 </div>
 
 <div id="statusMessage" style="display: none; padding: 15px; margin-bottom: 20px; border-radius: 5px;"></div>
 
-<!-- Current Subscriptions -->
-@if($subscriptions->count() > 0)
+@php
+    $subscriptionMap = $subscriptions->keyBy(function($sub) {
+        return $sub->alert_type->value . '_' . ($sub->device_id ?? 'all');
+    });
+@endphp
+
+@foreach($alertTypes as $category => $types)
 <div class="card">
-    <h2 class="card-title">Active Subscriptions ({{ $subscriptions->count() }})</h2>
+    <h2 class="card-title">{{ $category }} Alerts</h2>
     <div style="overflow-x: auto;">
         <table style="width: 100%; border-collapse: collapse;">
             <thead>
                 <tr style="background: #f5f5f5;">
-                    <th style="padding: 12px; text-align: left;">Alert Type</th>
-                    <th style="padding: 12px; text-align: left;">Device</th>
-                    <th style="padding: 12px; text-align: left;">Settings</th>
-                    <th style="padding: 12px; text-align: center;">Enabled</th>
-                    <th style="padding: 12px; text-align: center;">Actions</th>
+                    <th style="padding: 12px; text-align: left; width: 200px;">Alert Type</th>
+                    <th style="padding: 12px; text-align: left;">Description</th>
+                    <th style="padding: 12px; text-align: center; width: 120px;">Device</th>
+                    <th style="padding: 12px; text-align: center; width: 100px;">Settings</th>
+                    <th style="padding: 12px; text-align: center; width: 100px;">Status</th>
+                    <th style="padding: 12px; text-align: center; width: 100px;">Action</th>
                 </tr>
             </thead>
             <tbody>
-                @foreach($subscriptions as $sub)
-                <tr style="border-bottom: 1px solid #eee;">
-                    <td style="padding: 12px;">{{ $sub->alert_type->label() }}</td>
-                    <td style="padding: 12px;">{{ $sub->device?->name ?? 'All Devices' }}</td>
+                @foreach($types as $type)
+                @php
+                    $subscription = $subscriptionMap->first(function($sub) use ($type) {
+                        return $sub->alert_type->value === $type['value'];
+                    });
+                    $isSubscribed = $subscription !== null;
+                @endphp
+                <tr style="border-bottom: 1px solid #eee; {{ $isSubscribed ? 'background: #f0f8ff;' : '' }}">
                     <td style="padding: 12px;">
-                        @if($sub->settings)
-                            <code style="font-size: 12px;">{{ json_encode($sub->settings) }}</code>
+                        <strong>{{ $type['label'] }}</strong>
+                        @if($type['requires_permission'] === 'user')
+                            <span style="font-size: 10px; padding: 2px 6px; background: #3498db; color: white; border-radius: 3px; margin-left: 5px;">USER+</span>
+                        @endif
+                    </td>
+                    <td style="padding: 12px; color: #666; font-size: 14px;">
+                        {{ $type['description'] }}
+                    </td>
+                    <td style="padding: 12px; text-align: center;">
+                        @if($isSubscribed)
+                            {{ $subscription->device?->name ?? 'All' }}
                         @else
-                            <span style="color: #999;">No settings</span>
+                            @if($type['can_subscribe'])
+                                <select id="device-{{ $type['value'] }}" style="width: 100%; padding: 4px; font-size: 12px;">
+                                    <option value="">All</option>
+                                    @foreach($devices as $device)
+                                        <option value="{{ $device->id }}">{{ $device->name }}</option>
+                                    @endforeach
+                                </select>
+                            @else
+                                -
+                            @endif
                         @endif
                     </td>
                     <td style="padding: 12px; text-align: center;">
-                        <input type="checkbox" 
-                               id="enabled-{{ $sub->id }}" 
-                               {{ $sub->enabled ? 'checked' : '' }}
-                               onchange="toggleEnabled({{ $sub->id }})">
+                        @if($isSubscribed)
+                            @if($subscription->settings)
+                                <code style="font-size: 11px;">{{ json_encode($subscription->settings) }}</code>
+                            @else
+                                -
+                            @endif
+                        @else
+                            @if($type['can_subscribe'] && in_array($type['value'], ['temp_high', 'temp_low']))
+                                <input type="number" id="threshold-{{ $type['value'] }}" 
+                                       placeholder="°C" style="width: 60px; padding: 4px; font-size: 12px;">
+                            @else
+                                -
+                            @endif
+                        @endif
                     </td>
                     <td style="padding: 12px; text-align: center;">
-                        <button class="btn btn-danger" onclick="deleteSubscription({{ $sub->id }})" 
-                                style="padding: 6px 12px; font-size: 13px; background: #e74c3c;">
-                            Delete
-                        </button>
+                        @if($isSubscribed)
+                            <label style="cursor: pointer;">
+                                <input type="checkbox" id="enabled-{{ $subscription->id }}" 
+                                       {{ $subscription->enabled ? 'checked' : '' }}
+                                       onchange="toggleEnabled({{ $subscription->id }})">
+                                <span style="font-size: 12px; margin-left: 4px;">
+                                    {{ $subscription->enabled ? 'On' : 'Off' }}
+                                </span>
+                            </label>
+                        @else
+                            @if(!$type['can_subscribe'])
+                                <span style="color: #e74c3c; font-size: 12px;">No access</span>
+                            @else
+                                -
+                            @endif
+                        @endif
+                    </td>
+                    <td style="padding: 12px; text-align: center;">
+                        @if($isSubscribed)
+                            <button class="btn btn-danger" onclick="deleteSubscription({{ $subscription->id }})" 
+                                    style="padding: 4px 8px; font-size: 12px; background: #e74c3c; width: 80px;">
+                                Remove
+                            </button>
+                        @else
+                            @if($type['can_subscribe'])
+                                <button class="btn" onclick="subscribe('{{ $type['value'] }}')" 
+                                        style="padding: 4px 8px; font-size: 12px; width: 80px;">
+                                    Subscribe
+                                </button>
+                            @else
+                                -
+                            @endif
+                        @endif
                     </td>
                 </tr>
                 @endforeach
@@ -75,61 +143,7 @@
         </table>
     </div>
 </div>
-@endif
-
-<!-- Available Alert Types -->
-<div class="card">
-    <h2 class="card-title">Subscribe to New Alerts</h2>
-    
-    @foreach($alertTypes as $category => $types)
-    <div style="margin-bottom: 30px;">
-        <h3 style="font-size: 18px; margin-bottom: 15px; color: #2c3e50;">{{ $category }}</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
-            @foreach($types as $type)
-            <div class="alert-type-card" style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: #f9f9f9;">
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-                    <h4 style="margin: 0; font-size: 16px;">{{ $type['label'] }}</h4>
-                    @if($type['requires_permission'] === 'user')
-                        <span style="font-size: 11px; padding: 3px 8px; background: #3498db; color: white; border-radius: 3px;">USER+</span>
-                    @endif
-                </div>
-                <p style="font-size: 14px; color: #666; margin-bottom: 15px;">{{ $type['description'] }}</p>
-                
-                @if($type['can_subscribe'])
-                    <div style="margin-bottom: 10px;">
-                        <label style="font-size: 13px; display: block; margin-bottom: 5px;">Device:</label>
-                        <select class="device-select-{{ $type['value'] }}" style="width: 100%; padding: 6px; border-radius: 4px;">
-                            <option value="">All Devices</option>
-                            @foreach($devices as $device)
-                                <option value="{{ $device->id }}">{{ $device->name }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    
-                    @if(in_array($type['value'], ['temp_high', 'temp_low']))
-                        <div style="margin-bottom: 10px;">
-                            <label style="font-size: 13px; display: block; margin-bottom: 5px;">Threshold (°C):</label>
-                            <input type="number" class="threshold-{{ $type['value'] }}" 
-                                   style="width: 100%; padding: 6px; border-radius: 4px;"
-                                   placeholder="e.g., 25">
-                        </div>
-                    @endif
-                    
-                    <button class="btn" onclick="subscribe('{{ $type['value'] }}')" 
-                            style="width: 100%; padding: 8px; font-size: 14px;">
-                        Subscribe
-                    </button>
-                @else
-                    <div style="padding: 8px; background: #fee; border-radius: 4px; font-size: 13px; color: #c33;">
-                        Requires {{ $type['requires_permission'] }} role or higher
-                    </div>
-                @endif
-            </div>
-            @endforeach
-        </div>
-    </div>
-    @endforeach
-</div>
+@endforeach
 
 <script>
 const targetUserId = {{ $targetUser->id }};
@@ -153,17 +167,18 @@ function showMessage(message, isError = false) {
 }
 
 async function subscribe(alertType) {
-    const deviceId = document.querySelector(`.device-select-${alertType}`).value || null;
+    const deviceSelect = document.getElementById(`device-${alertType}`);
+    const deviceId = deviceSelect ? (deviceSelect.value || null) : null;
     const settings = {};
 
     // Get threshold if applicable
-    const thresholdInput = document.querySelector(`.threshold-${alertType}`);
+    const thresholdInput = document.getElementById(`threshold-${alertType}`);
     if (thresholdInput && thresholdInput.value) {
         settings.threshold = parseFloat(thresholdInput.value);
     }
 
     try {
-        const response = await fetch('/api/alert-subscriptions', {
+        const response = await fetch('/alert-subscriptions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -181,7 +196,7 @@ async function subscribe(alertType) {
 
         if (response.ok) {
             showMessage('Subscription created successfully!');
-            setTimeout(() => window.location.reload(), 1500);
+            setTimeout(() => window.location.reload(), 1000);
         } else {
             showMessage(data.error || 'Failed to create subscription', true);
         }
@@ -194,7 +209,7 @@ async function toggleEnabled(id) {
     const enabled = document.getElementById(`enabled-${id}`).checked;
 
     try {
-        const response = await fetch(`/api/alert-subscriptions/${id}`, {
+        const response = await fetch(`/alert-subscriptions/${id}`, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
@@ -204,9 +219,9 @@ async function toggleEnabled(id) {
         });
 
         if (response.ok) {
-            showMessage(`Subscription ${enabled ? 'enabled' : 'disabled'}`);
+            showMessage(`Alert ${enabled ? 'enabled' : 'disabled'}`);
         } else {
-            showMessage('Failed to update subscription', true);
+            showMessage('Failed to update', true);
             document.getElementById(`enabled-${id}`).checked = !enabled;
         }
     } catch (error) {
@@ -216,12 +231,12 @@ async function toggleEnabled(id) {
 }
 
 async function deleteSubscription(id) {
-    if (!confirm('Are you sure you want to delete this subscription?')) {
+    if (!confirm('Remove this alert subscription?')) {
         return;
     }
 
     try {
-        const response = await fetch(`/api/alert-subscriptions/${id}`, {
+        const response = await fetch(`/alert-subscriptions/${id}`, {
             method: 'DELETE',
             headers: {
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
@@ -229,10 +244,10 @@ async function deleteSubscription(id) {
         });
 
         if (response.ok) {
-            showMessage('Subscription deleted');
+            showMessage('Subscription removed');
             setTimeout(() => window.location.reload(), 1000);
         } else {
-            showMessage('Failed to delete subscription', true);
+            showMessage('Failed to remove subscription', true);
         }
     } catch (error) {
         showMessage('Error: ' + error.message, true);
