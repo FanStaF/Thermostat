@@ -5,7 +5,7 @@ namespace App\Services;
 use App\AlertType;
 use App\Models\AlertSubscription;
 use App\Models\Device;
-use App\Models\RelayStateHistory;
+use App\Models\RelayState;
 
 class AlertEvaluator
 {
@@ -242,7 +242,7 @@ class AlertEvaluator
 
         foreach ($devices as $device) {
             foreach ($device->relays as $relay) {
-                $recentChange = RelayStateHistory::where('relay_id', $relay->id)
+                $recentChange = RelayState::where('relay_id', $relay->id)
                     ->where('changed_at', '>', now()->subMinutes(2))
                     ->latest('changed_at')
                     ->first();
@@ -295,7 +295,7 @@ class AlertEvaluator
                     continue;
                 }
 
-                $hoursSinceLastChange = RelayStateHistory::where('relay_id', $relay->id)
+                $hoursSinceLastChange = RelayState::where('relay_id', $relay->id)
                     ->where('state', '!=', $currentState->state)
                     ->latest('changed_at')
                     ->first();
@@ -332,7 +332,7 @@ class AlertEvaluator
 
         foreach ($devices as $device) {
             foreach ($device->relays as $relay) {
-                $recentChanges = RelayStateHistory::where('relay_id', $relay->id)
+                $recentChanges = RelayState::where('relay_id', $relay->id)
                     ->where('changed_at', '>', now()->subMinutes(30))
                     ->count();
 
@@ -440,7 +440,7 @@ class AlertEvaluator
         // Calculate relay on time
         $relayStats = [];
         foreach ($device->relays as $relay) {
-            $onTime = RelayStateHistory::where('relay_id', $relay->id)
+            $onTime = RelayState::where('relay_id', $relay->id)
                 ->whereDate('changed_at', $yesterday->toDateString())
                 ->where('state', true)
                 ->count();
@@ -478,7 +478,7 @@ class AlertEvaluator
         // Calculate relay on time
         $relayStats = [];
         foreach ($device->relays as $relay) {
-            $onTime = RelayStateHistory::where('relay_id', $relay->id)
+            $onTime = RelayState::where('relay_id', $relay->id)
                 ->whereBetween('changed_at', [$startOfWeek, $endOfWeek])
                 ->where('state', true)
                 ->count();

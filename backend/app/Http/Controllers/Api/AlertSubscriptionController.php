@@ -352,7 +352,7 @@ class AlertSubscriptionController extends Controller
 
         $relayStats = [];
         foreach ($device->relays as $relay) {
-            $onTime = \App\Models\RelayStateHistory::where('relay_id', $relay->id)
+            $onTime = \App\Models\RelayState::where('relay_id', $relay->id)
                 ->where('changed_at', '>', now()->subDay())
                 ->where('state', true)
                 ->count();
@@ -385,7 +385,7 @@ class AlertSubscriptionController extends Controller
 
         $relayStats = [];
         foreach ($device->relays as $relay) {
-            $onTime = \App\Models\RelayStateHistory::where('relay_id', $relay->id)
+            $onTime = \App\Models\RelayState::where('relay_id', $relay->id)
                 ->where('changed_at', '>', now()->subWeek())
                 ->where('state', true)
                 ->count();
