@@ -466,7 +466,7 @@ class AlertSubscriptionController extends Controller
         ];
 
         foreach ($device->relays as $relay) {
-            $currentState = $relay->currentState;
+            $currentState = $relay->currentState()->first();
             $state['relay_' . $relay->name . '_state'] = $currentState ? ($currentState->state ? 'ON' : 'OFF') : 'Unknown';
             $state['relay_' . $relay->name . '_mode'] = $relay->mode ?? 'manual';
         }

@@ -289,7 +289,7 @@ class AlertEvaluator
 
         foreach ($devices as $device) {
             foreach ($device->relays as $relay) {
-                $currentState = $relay->currentState;
+                $currentState = $relay->currentState()->first();
 
                 if (!$currentState) {
                     continue;
@@ -529,7 +529,7 @@ class AlertEvaluator
 
         // Get relay states
         foreach ($device->relays as $relay) {
-            $currentState = $relay->currentState;
+            $currentState = $relay->currentState()->first();
             $state['relay_' . $relay->id . '_name'] = $relay->name;
             $state['relay_' . $relay->id . '_state'] = $currentState ? ($currentState->state ? 'ON' : 'OFF') : 'Unknown';
             $state['relay_' . $relay->id . '_mode'] = $relay->mode ?? 'manual';
