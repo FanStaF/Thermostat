@@ -85,9 +85,12 @@
 
 @if(isset($alertLog->data['relay_activity']) && is_array($alertLog->data['relay_activity']))
 ## Relay Activity
+@if(isset($alertLog->data['period']))
+**On time during {{ strtolower($alertLog->data['period']) }}**
+@endif
 
 @component('mail::table')
-| Relay | On Time |
+| Relay | Duration |
 |:------------- |:-------------|
 @foreach($alertLog->data['relay_activity'] as $relayName => $onTime)
 | **{{ ucfirst(str_replace('_', ' ', $relayName)) }}** | {{ $onTime }} |

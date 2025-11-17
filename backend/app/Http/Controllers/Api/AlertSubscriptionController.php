@@ -359,7 +359,7 @@ class AlertSubscriptionController extends Controller
         $relayStats = [];
         foreach ($device->relays as $relay) {
             $onTime = $this->calculateRelayOnTime($relay, $periodStart, $periodEnd);
-            $relayStats[$relay->name] = $this->formatDuration($onTime);
+            $relayStats[$relay->name] = $onTime >= 0 ? $this->formatDuration($onTime) : 'No data';
         }
 
         return [
@@ -390,7 +390,7 @@ class AlertSubscriptionController extends Controller
         $relayStats = [];
         foreach ($device->relays as $relay) {
             $onTime = $this->calculateRelayOnTime($relay, $periodStart, $periodEnd);
-            $relayStats[$relay->name] = $this->formatDuration($onTime);
+            $relayStats[$relay->name] = $onTime >= 0 ? $this->formatDuration($onTime) : 'No data';
         }
 
         return [
@@ -503,27 +503,31 @@ class AlertSubscriptionController extends Controller
 
     private function calculateRelayOnTime($relay, $periodStart, $periodEnd): int
     {
-        // Get all state changes in the period, plus the one before to know initial state
+        // Get all state changes in and around the period
         $states = \App\Models\RelayState::where('relay_id', $relay->id)
             ->where('changed_at', '<=', $periodEnd)
             ->orderBy('changed_at')
             ->get();
 
         if ($states->isEmpty()) {
-            // No state history, check current state
-            $currentState = $relay->currentState()->first();
-            if ($currentState && $currentState->state) {
-                // Relay is ON, but we don't know for how long, assume full period
-                return $periodEnd->diffInSeconds($periodStart);
-            }
-            return 0;
+            return -1; // No data available
+        }
+
+        // Check if latest state is too old (before period start)
+        $latestState = $states->last();
+        if ($latestState->changed_at < $periodStart->subHours(1)) {
+            // Data is stale, device hasn't reported during or near the period
+            return -1; // No data available
         }
 
         $totalOnTime = 0;
         $lastState = null;
 
-        // Find the state at the start of the period
+        // Find the state at or before the start of the period
         $stateAtStart = $states->where('changed_at', '<=', $periodStart)->last();
+        if ($stateAtStart) {
+            $lastState = $stateAtStart;
+        }
 
         foreach ($states as $state) {
             if ($state->changed_at < $periodStart) {
@@ -537,20 +541,21 @@ class AlertSubscriptionController extends Controller
 
             // If we were ON, add the duration
             if ($lastState && $lastState->state) {
-                $onStart = max($lastState->changed_at, $periodStart);
-                $onEnd = min($state->changed_at, $periodEnd);
-                $totalOnTime += $onEnd->diffInSeconds($onStart);
+                $onStart = $lastState->changed_at < $periodStart ? $periodStart : $lastState->changed_at;
+                $onEnd = $state->changed_at;
+                $totalOnTime += $onStart->diffInSeconds($onEnd, false);
             }
 
             $lastState = $state;
         }
 
-        // If the last state in period is ON, add time until period end
-        if ($lastState && $lastState->state && $lastState->changed_at < $periodEnd) {
-            $totalOnTime += $periodEnd->diffInSeconds(max($lastState->changed_at, $periodStart));
+        // If the last known state in period is ON, add time until period end
+        if ($lastState && $lastState->state && $lastState->changed_at >= $periodStart && $lastState->changed_at <= $periodEnd) {
+            $onStart = $lastState->changed_at;
+            $totalOnTime += $onStart->diffInSeconds($periodEnd, false);
         }
 
-        return $totalOnTime;
+        return max(0, $totalOnTime); // Ensure non-negative
     }
 
     private function formatDuration(int $seconds): string
