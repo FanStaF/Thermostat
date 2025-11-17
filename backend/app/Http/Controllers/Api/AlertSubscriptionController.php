@@ -353,15 +353,13 @@ class AlertSubscriptionController extends Controller
         }
 
         $temps = $readings->pluck('temperature');
+        $periodStart = now()->subDay();
+        $periodEnd = now();
 
         $relayStats = [];
         foreach ($device->relays as $relay) {
-            $onTime = \App\Models\RelayState::where('relay_id', $relay->id)
-                ->where('changed_at', '>', now()->subDay())
-                ->where('state', true)
-                ->count();
-
-            $relayStats[$relay->name] = $this->formatDuration($onTime * 60);
+            $onTime = $this->calculateRelayOnTime($relay, $periodStart, $periodEnd);
+            $relayStats[$relay->name] = $this->formatDuration($onTime);
         }
 
         return [
@@ -386,15 +384,13 @@ class AlertSubscriptionController extends Controller
         }
 
         $temps = $readings->pluck('temperature');
+        $periodStart = now()->subWeek();
+        $periodEnd = now();
 
         $relayStats = [];
         foreach ($device->relays as $relay) {
-            $onTime = \App\Models\RelayState::where('relay_id', $relay->id)
-                ->where('changed_at', '>', now()->subWeek())
-                ->where('state', true)
-                ->count();
-
-            $relayStats[$relay->name] = $this->formatDuration($onTime * 60);
+            $onTime = $this->calculateRelayOnTime($relay, $periodStart, $periodEnd);
+            $relayStats[$relay->name] = $this->formatDuration($onTime);
         }
 
         return [
@@ -490,8 +486,8 @@ class AlertSubscriptionController extends Controller
     private function getDeviceStateData($device): array
     {
         $state = [
-            'last_seen' => $device->last_seen ? $device->last_seen->format('M j, Y g:i A') : 'Never',
-            'online' => $device->last_seen && $device->last_seen > now()->subMinutes(5) ? 'Yes' : 'No',
+            'last_seen' => $device->last_seen_at ? $device->last_seen_at->format('M j, Y g:i A') : 'Never',
+            'online' => $device->last_seen_at && $device->last_seen_at > now()->subMinutes(5) ? 'Yes' : 'No',
         ];
 
         foreach ($device->relays as $relay) {
@@ -503,6 +499,58 @@ class AlertSubscriptionController extends Controller
         }
 
         return $state;
+    }
+
+    private function calculateRelayOnTime($relay, $periodStart, $periodEnd): int
+    {
+        // Get all state changes in the period, plus the one before to know initial state
+        $states = \App\Models\RelayState::where('relay_id', $relay->id)
+            ->where('changed_at', '<=', $periodEnd)
+            ->orderBy('changed_at')
+            ->get();
+
+        if ($states->isEmpty()) {
+            // No state history, check current state
+            $currentState = $relay->currentState()->first();
+            if ($currentState && $currentState->state) {
+                // Relay is ON, but we don't know for how long, assume full period
+                return $periodEnd->diffInSeconds($periodStart);
+            }
+            return 0;
+        }
+
+        $totalOnTime = 0;
+        $lastState = null;
+
+        // Find the state at the start of the period
+        $stateAtStart = $states->where('changed_at', '<=', $periodStart)->last();
+
+        foreach ($states as $state) {
+            if ($state->changed_at < $periodStart) {
+                $lastState = $state;
+                continue;
+            }
+
+            if ($state->changed_at > $periodEnd) {
+                break;
+            }
+
+            // If we were ON, add the duration
+            if ($lastState && $lastState->state) {
+                $onStart = max($lastState->changed_at, $periodStart);
+                $onEnd = min($state->changed_at, $periodEnd);
+                $totalOnTime += $onEnd->diffInSeconds($onStart);
+            }
+
+            $lastState = $state;
+        }
+
+        // If the last state in period is ON, add time until period end
+        if ($lastState && $lastState->state && $lastState->changed_at < $periodEnd) {
+            $totalOnTime += $periodEnd->diffInSeconds(max($lastState->changed_at, $periodStart));
+        }
+
+        return $totalOnTime;
     }
 
     private function formatDuration(int $seconds): string
