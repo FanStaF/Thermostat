@@ -157,6 +157,28 @@ class DeviceController extends Controller
     }
 
     /**
+     * Get dashboard data for AJAX polling
+     */
+    public function dashboardData($deviceId)
+    {
+        $device = Device::with([
+            'relays.currentState',
+            'temperatureReadings' => function ($query) {
+                $query->latest('recorded_at')->limit(1);
+            }
+        ])->find($deviceId);
+
+        if (!$device) {
+            return response()->json(['error' => 'Device not found'], 404);
+        }
+
+        return response()->json([
+            'latestReading' => $device->temperatureReadings->first(),
+            'relays' => $device->relays,
+        ]);
+    }
+
+    /**
      * Update device settings
      */
     public function updateSettings(Request $request, $deviceId)

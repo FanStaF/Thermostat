@@ -21,6 +21,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::post('/devices/{device}/heartbeat', [DeviceController::class, 'heartbeat']);
     Route::get('/devices', [DeviceController::class, 'index']);
     Route::get('/devices/{device}', [DeviceController::class, 'show']);
+    Route::get('/devices/{device}/dashboard-data', [DeviceController::class, 'dashboardData']);
     Route::patch('/devices/{device}', [DeviceController::class, 'update']);
 
     // Temperature Readings

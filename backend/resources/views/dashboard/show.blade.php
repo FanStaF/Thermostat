@@ -412,12 +412,72 @@
             }
         };
 
-        new Chart(ctx, config);
+        const chart = new Chart(ctx, config);
 
-        // Auto-refresh every 30 seconds
-        setInterval(() => {
-            window.location.reload();
-        }, 30000);
+        // AJAX polling for updates without page reload
+        async function refreshData() {
+            try {
+                // Fetch latest temperature and relay data
+                const response = await fetch(`/api/devices/${deviceId}/dashboard-data`);
+                if (!response.ok) return;
+
+                const data = await response.json();
+
+                // Update temperature display
+                if (data.latestReading) {
+                    let temp = parseFloat(data.latestReading.temperature);
+                    if (useFahrenheit) {
+                        temp = (temp * 9/5) + 32;
+                    }
+                    document.getElementById('currentTemp').innerHTML =
+                        temp.toFixed(1) + tempUnit;
+
+                    // Add new point to chart if it's newer than last point
+                    const lastPoint = chart.data.datasets[0].data[chart.data.datasets[0].data.length - 1];
+                    if (!lastPoint || data.latestReading.recorded_at !== lastPoint.x) {
+                        chart.data.datasets[0].data.push({
+                            x: data.latestReading.recorded_at,
+                            y: temp
+                        });
+                        chart.data.labels.push(data.latestReading.recorded_at);
+
+                        // Keep only last 1000 points
+                        if (chart.data.datasets[0].data.length > 1000) {
+                            chart.data.datasets[0].data.shift();
+                            chart.data.labels.shift();
+                        }
+                        chart.update('none'); // Update without animation for smoother experience
+                    }
+                }
+
+                // Update relay states
+                if (data.relays) {
+                    data.relays.forEach(relay => {
+                        const stateBadge = document.getElementById(`state-${relay.relay_number}`);
+                        if (stateBadge && relay.currentState) {
+                            stateBadge.textContent = relay.currentState.state ? 'ON' : 'OFF';
+                            stateBadge.className = `relay-badge ${relay.currentState.state ? 'on' : 'off'}`;
+
+                            // Update mode buttons
+                            const card = document.querySelector(`[data-relay-number="${relay.relay_number}"]`);
+                            if (card) {
+                                card.querySelectorAll('.mode-btn').forEach(btn => {
+                                    btn.classList.remove('active');
+                                    if (btn.dataset.mode === relay.currentState.mode) {
+                                        btn.classList.add('active');
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+            }
+        }
+
+        // Refresh every 30 seconds
+        setInterval(refreshData, 30000);
     });
 
     // Command sending functions
