@@ -23,6 +23,8 @@ class AlertEvaluator
             AlertType::RELAY_MODE_CHANGED => $this->evaluateRelayModeChanged($subscription),
             AlertType::RELAY_STUCK => $this->evaluateRelayStuck($subscription),
             AlertType::RELAY_CYCLING => $this->evaluateRelayCycling($subscription),
+            AlertType::DAILY_SUMMARY => $this->evaluateDailySummary($subscription),
+            AlertType::WEEKLY_SUMMARY => $this->evaluateWeeklySummary($subscription),
             default => null,
         };
     }
@@ -43,12 +45,12 @@ class AlertEvaluator
                     'triggered' => true,
                     'device_id' => $device->id,
                     'message' => "Temperature {$reading->temperature}°C exceeds threshold {$threshold}°C on {$device->name}",
-                    'metadata' => [
+                    'metadata' => array_merge([
                         'temperature' => $reading->temperature,
                         'threshold' => $threshold,
                         'device_name' => $device->name,
-                        'recorded_at' => $reading->recorded_at->toIso8601String(),
-                    ],
+                        'recorded_at' => $reading->recorded_at->format('M j, Y g:i A'),
+                    ], $this->getDeviceState($device)),
                 ];
             }
         }
@@ -353,6 +355,156 @@ class AlertEvaluator
         return null;
     }
 
+    private function evaluateDailySummary(AlertSubscription $sub): ?array
+    {
+        // Check if it's the scheduled time (default 09:00)
+        $scheduledTime = $sub->scheduled_time ?? '09:00';
+        $now = now();
+
+        // Only trigger within 5 minutes of scheduled time
+        if ($now->format('H:i') < $scheduledTime || $now->format('H:i') > date('H:i', strtotime($scheduledTime) + 300)) {
+            return null;
+        }
+
+        $devices = $this->getDevicesToCheck($sub);
+
+        foreach ($devices as $device) {
+            // Get yesterday's data
+            $stats = $this->calculateDailyStats($device);
+
+            if (!$stats) {
+                continue;
+            }
+
+            return [
+                'triggered' => true,
+                'device_id' => $device->id,
+                'message' => "Daily Summary for {$device->name}",
+                'metadata' => $stats,
+            ];
+        }
+
+        return null;
+    }
+
+    private function evaluateWeeklySummary(AlertSubscription $sub): ?array
+    {
+        // Check if it's the scheduled time and Monday
+        $scheduledTime = $sub->scheduled_time ?? '09:00';
+        $now = now();
+
+        if ($now->dayOfWeek !== 1) { // Not Monday
+            return null;
+        }
+
+        // Only trigger within 5 minutes of scheduled time
+        if ($now->format('H:i') < $scheduledTime || $now->format('H:i') > date('H:i', strtotime($scheduledTime) + 300)) {
+            return null;
+        }
+
+        $devices = $this->getDevicesToCheck($sub);
+
+        foreach ($devices as $device) {
+            // Get last week's data
+            $stats = $this->calculateWeeklyStats($device);
+
+            if (!$stats) {
+                continue;
+            }
+
+            return [
+                'triggered' => true,
+                'device_id' => $device->id,
+                'message' => "Weekly Summary for {$device->name}",
+                'metadata' => $stats,
+            ];
+        }
+
+        return null;
+    }
+
+    private function calculateDailyStats(Device $device): ?array
+    {
+        $yesterday = now()->subDay();
+
+        $readings = $device->temperatureReadings()
+            ->whereDate('recorded_at', $yesterday->toDateString())
+            ->get();
+
+        if ($readings->isEmpty()) {
+            return null;
+        }
+
+        $temps = $readings->pluck('temperature');
+
+        // Calculate relay on time
+        $relayStats = [];
+        foreach ($device->relays as $relay) {
+            $onTime = RelayStateHistory::where('relay_id', $relay->id)
+                ->whereDate('changed_at', $yesterday->toDateString())
+                ->where('state', true)
+                ->count();
+
+            $relayStats[$relay->name] = $this->formatDuration($onTime * 60); // Assuming 1 entry per minute avg
+        }
+
+        return [
+            'device_name' => $device->name,
+            'date' => $yesterday->format('M j, Y'),
+            'avg_temperature' => round($temps->avg(), 1) . '°C',
+            'min_temperature' => round($temps->min(), 1) . '°C',
+            'max_temperature' => round($temps->max(), 1) . '°C',
+            'readings_count' => $readings->count(),
+            'relay_activity' => $relayStats,
+        ];
+    }
+
+    private function calculateWeeklyStats(Device $device): ?array
+    {
+        $lastWeek = now()->subWeek();
+        $startOfWeek = $lastWeek->startOfWeek();
+        $endOfWeek = $lastWeek->endOfWeek();
+
+        $readings = $device->temperatureReadings()
+            ->whereBetween('recorded_at', [$startOfWeek, $endOfWeek])
+            ->get();
+
+        if ($readings->isEmpty()) {
+            return null;
+        }
+
+        $temps = $readings->pluck('temperature');
+
+        // Calculate relay on time
+        $relayStats = [];
+        foreach ($device->relays as $relay) {
+            $onTime = RelayStateHistory::where('relay_id', $relay->id)
+                ->whereBetween('changed_at', [$startOfWeek, $endOfWeek])
+                ->where('state', true)
+                ->count();
+
+            $relayStats[$relay->name] = $this->formatDuration($onTime * 60);
+        }
+
+        return [
+            'device_name' => $device->name,
+            'period' => $startOfWeek->format('M j') . ' - ' . $endOfWeek->format('M j, Y'),
+            'avg_temperature' => round($temps->avg(), 1) . '°C',
+            'min_temperature' => round($temps->min(), 1) . '°C',
+            'max_temperature' => round($temps->max(), 1) . '°C',
+            'total_readings' => $readings->count(),
+            'relay_activity' => $relayStats,
+        ];
+    }
+
+    private function formatDuration(int $seconds): string
+    {
+        $hours = floor($seconds / 3600);
+        $minutes = floor(($seconds % 3600) / 60);
+
+        return sprintf('%dh %dm', $hours, $minutes);
+    }
+
     private function getDevicesToCheck(AlertSubscription $sub): \Illuminate\Database\Eloquent\Collection
     {
         return $sub->device_id
@@ -360,5 +512,29 @@ class AlertEvaluator
                 ->where('id', $sub->device_id)
                 ->get()
             : Device::with(['relays.currentState', 'temperatureReadings'])->get();
+    }
+
+    private function getDeviceState(Device $device): array
+    {
+        $state = [
+            'last_seen' => $device->last_seen->format('M j, Y g:i A'),
+            'online' => $device->last_seen > now()->subMinutes(5),
+        ];
+
+        // Get current temperature
+        $latestReading = $device->temperatureReadings()->latest('recorded_at')->first();
+        if ($latestReading) {
+            $state['current_temperature'] = round($latestReading->temperature, 1) . '°C';
+        }
+
+        // Get relay states
+        foreach ($device->relays as $relay) {
+            $currentState = $relay->currentState;
+            $state['relay_' . $relay->id . '_name'] = $relay->name;
+            $state['relay_' . $relay->id . '_state'] = $currentState ? ($currentState->state ? 'ON' : 'OFF') : 'Unknown';
+            $state['relay_' . $relay->id . '_mode'] = $relay->mode ?? 'manual';
+        }
+
+        return $state;
     }
 }
