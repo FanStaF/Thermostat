@@ -63,3 +63,4 @@ build/
 
 # OS files
 Thumbs.db
+.arduino-fqbn
