@@ -331,6 +331,10 @@ class AlertSubscriptionController extends Controller
         // Add temperature chart
         $stats['temperature_chart'] = $this->generateTempChartUrl($device, $subscription->alert_type->value);
 
+        // Add current device state (includes last_seen, online, and relay states)
+        $deviceState = $this->getDeviceStateData($device);
+        $stats = array_merge($deviceState, $stats);
+
         return [
             'device_id' => $device->id,
             'message' => $message,
