@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan:*)",
+      "Bash(php artisan migrate:*)",
+      "Bash(git add:*)",
+      "Bash(ssh:*)",
+      "Bash(arduino-cli compile:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
