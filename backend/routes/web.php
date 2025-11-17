@@ -43,4 +43,5 @@ Route::middleware('auth')->group(function () {
 // Admin Only Routes
 Route::middleware(['auth', 'admin'])->group(function () {
     Route::resource('users', UsersController::class);
+    Route::post('/alert-subscriptions/{id}/test', [\App\Http\Controllers\Api\AlertSubscriptionController::class, 'testTrigger']);
 });

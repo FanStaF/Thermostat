@@ -227,4 +227,122 @@ class AlertSubscriptionController extends Controller
 
         return response()->json($logs);
     }
+
+    /**
+     * Manually trigger a test alert (admin only)
+     */
+    public function testTrigger($id)
+    {
+        $user = auth()->user();
+
+        // Admin only
+        if ($user->role !== 'admin') {
+            return response()->json(['error' => 'Admin access required'], 403);
+        }
+
+        $subscription = AlertSubscription::with(['user', 'device'])->find($id);
+
+        if (!$subscription) {
+            return response()->json(['error' => 'Subscription not found'], 404);
+        }
+
+        // Check if user has email
+        if (!$subscription->user->email) {
+            return response()->json(['error' => 'User has no email configured'], 400);
+        }
+
+        // Create a test alert log
+        $device = $subscription->device ?? \App\Models\Device::first();
+
+        $testMessage = $this->generateTestMessage($subscription, $device);
+
+        $alertLog = \App\Models\AlertLog::create([
+            'alert_subscription_id' => $subscription->id,
+            'device_id' => $device?->id,
+            'triggered_at' => now(),
+            'message' => $testMessage['message'],
+            'metadata' => array_merge($testMessage['metadata'], ['test' => true]),
+        ]);
+
+        // Send email immediately
+        \App\Jobs\SendAlertEmail::dispatchSync($subscription->user, $alertLog);
+
+        return response()->json([
+            'message' => 'Test alert sent successfully',
+            'alert_log' => $alertLog,
+            'email_sent_to' => $subscription->user->email,
+        ]);
+    }
+
+    private function generateTestMessage($subscription, $device)
+    {
+        $deviceName = $device?->name ?? 'Test Device';
+
+        return match ($subscription->alert_type->value) {
+            'temp_high' => [
+                'message' => "TEST: Temperature 35°C exceeds threshold 30°C on {$deviceName}",
+                'metadata' => [
+                    'temperature' => 35,
+                    'threshold' => 30,
+                    'device_name' => $deviceName,
+                ],
+            ],
+            'temp_low' => [
+                'message' => "TEST: Temperature 10°C is below threshold 15°C on {$deviceName}",
+                'metadata' => [
+                    'temperature' => 10,
+                    'threshold' => 15,
+                    'device_name' => $deviceName,
+                ],
+            ],
+            'device_offline' => [
+                'message' => "TEST: {$deviceName} has been offline for 10 minutes",
+                'metadata' => [
+                    'device_name' => $deviceName,
+                    'minutes_offline' => 10,
+                ],
+            ],
+            'device_online' => [
+                'message' => "TEST: {$deviceName} is back online",
+                'metadata' => [
+                    'device_name' => $deviceName,
+                ],
+            ],
+            'relay_state_changed' => [
+                'message' => "TEST: Heating Relay on {$deviceName} changed to ON",
+                'metadata' => [
+                    'device_name' => $deviceName,
+                    'relay_name' => 'Heating Relay',
+                    'state' => 'ON',
+                ],
+            ],
+            'daily_summary' => [
+                'message' => "TEST: Daily summary for {$deviceName}",
+                'metadata' => [
+                    'device_name' => $deviceName,
+                    'avg_temp' => 22.5,
+                    'min_temp' => 18.0,
+                    'max_temp' => 27.0,
+                    'relay_on_time' => '4h 32m',
+                ],
+            ],
+            'weekly_summary' => [
+                'message' => "TEST: Weekly summary for {$deviceName}",
+                'metadata' => [
+                    'device_name' => $deviceName,
+                    'avg_temp' => 21.8,
+                    'min_temp' => 16.5,
+                    'max_temp' => 28.5,
+                    'total_relay_on_time' => '28h 15m',
+                ],
+            ],
+            default => [
+                'message' => "TEST: {$subscription->alert_type->label()} alert for {$deviceName}",
+                'metadata' => [
+                    'device_name' => $deviceName,
+                    'alert_type' => $subscription->alert_type->value,
+                ],
+            ],
+        };
+    }
 }

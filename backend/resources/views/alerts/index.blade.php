@@ -145,13 +145,21 @@
                     </td>
                     <td style="padding: 12px; text-align: center;">
                         @if($isSubscribed)
-                            <button class="btn btn-danger" onclick="deleteSubscription({{ $subscription->id }})" 
-                                    style="padding: 4px 8px; font-size: 12px; background: #e74c3c; width: 80px;">
-                                Remove
-                            </button>
+                            <div style="display: flex; gap: 5px; justify-content: center;">
+                                @if(auth()->user()->isAdmin())
+                                    <button class="btn" onclick="testAlert({{ $subscription->id }})"
+                                            style="padding: 4px 8px; font-size: 12px; background: #3498db; color: white;">
+                                        Test
+                                    </button>
+                                @endif
+                                <button class="btn btn-danger" onclick="deleteSubscription({{ $subscription->id }})"
+                                        style="padding: 4px 8px; font-size: 12px; background: #e74c3c;">
+                                    Remove
+                                </button>
+                            </div>
                         @else
                             @if($type['can_subscribe'])
-                                <button class="btn" onclick="subscribe('{{ $type['value'] }}')" 
+                                <button class="btn" onclick="subscribe('{{ $type['value'] }}')"
                                         style="padding: 4px 8px; font-size: 12px; width: 80px;">
                                     Subscribe
                                 </button>
@@ -281,6 +289,33 @@ async function deleteSubscription(id) {
             setTimeout(() => window.location.reload(), 1000);
         } else {
             showMessage('Failed to remove subscription', true);
+        }
+    } catch (error) {
+        showMessage('Error: ' + error.message, true);
+    }
+}
+
+async function testAlert(id) {
+    if (!confirm('Send a test alert email for this subscription?')) {
+        return;
+    }
+
+    showMessage('Sending test alert...', false);
+
+    try {
+        const response = await fetch(`/alert-subscriptions/${id}/test`, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            showMessage(`Test alert sent to ${data.email_sent_to}`, false);
+        } else {
+            showMessage(data.error || 'Failed to send test alert', true);
         }
     } catch (error) {
         showMessage('Error: ' + error.message, true);
