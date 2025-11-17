@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Events\RelayStateUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\Relay;
@@ -59,16 +58,6 @@ class RelayController extends Controller
 
         // Update device last_seen_at
         $device->update(['last_seen_at' => now()]);
-
-        // Broadcast relay state update event
-        broadcast(new RelayStateUpdated(
-            $deviceId,
-            $request->relay_number,
-            $request->state,
-            $request->mode,
-            $request->temp_on,
-            $request->temp_off
-        ));
 
         return response()->json([
             'message' => 'Relay state updated',
