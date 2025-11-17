@@ -306,6 +306,8 @@ async function testAlert(id) {
         const response = await fetch(`/alert-subscriptions/${id}/test`, {
             method: 'POST',
             headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
             }
         });
