@@ -63,9 +63,6 @@
                 <tr style="border-bottom: 1px solid #eee; {{ $isSubscribed ? 'background: #f0f8ff;' : '' }}">
                     <td style="padding: 12px;">
                         <strong>{{ $type['label'] }}</strong>
-                        @if($type['requires_permission'] === 'user')
-                            <span style="font-size: 10px; padding: 2px 6px; background: #3498db; color: white; border-radius: 3px; margin-left: 5px;">USER+</span>
-                        @endif
                     </td>
                     <td style="padding: 12px; color: #666; font-size: 14px;">
                         {{ $type['description'] }}
