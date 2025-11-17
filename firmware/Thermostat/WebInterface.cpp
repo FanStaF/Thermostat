@@ -71,9 +71,7 @@ String WebInterface::generateCSS() {
 }
 
 String WebInterface::generateBodyHTML() {
-  return R"rawliteral(
-<body>
-  <h1>Thermostat Control</h1>
+  return R"rawliteral(  <h1>Thermostat Control</h1>
   <div style='margin-bottom:15px;'>
     <a href='/logs' style='color:#2196F3;text-decoration:none;font-size:14px;'>View System Logs</a>
     <span style='margin:0 15px;'>|</span>
