@@ -517,8 +517,8 @@ class AlertEvaluator
     private function getDeviceState(Device $device): array
     {
         $state = [
-            'last_seen' => $device->last_seen->format('M j, Y g:i A'),
-            'online' => $device->last_seen > now()->subMinutes(5),
+            'last_seen' => $device->last_seen ? $device->last_seen->format('M j, Y g:i A') : 'Never',
+            'online' => $device->last_seen && $device->last_seen > now()->subMinutes(5),
         ];
 
         // Get current temperature

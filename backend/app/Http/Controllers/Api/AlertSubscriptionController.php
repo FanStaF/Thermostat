@@ -461,8 +461,8 @@ class AlertSubscriptionController extends Controller
     private function getDeviceStateData($device): array
     {
         $state = [
-            'last_seen' => $device->last_seen->format('M j, Y g:i A'),
-            'online' => $device->last_seen > now()->subMinutes(5) ? 'Yes' : 'No',
+            'last_seen' => $device->last_seen ? $device->last_seen->format('M j, Y g:i A') : 'Never',
+            'online' => $device->last_seen && $device->last_seen > now()->subMinutes(5) ? 'Yes' : 'No',
         ];
 
         foreach ($device->relays as $relay) {
