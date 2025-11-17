@@ -417,45 +417,70 @@ class AlertSubscriptionController extends Controller
             return '';
         }
 
+        // Sample data if too many points (keep every Nth reading)
+        $maxPoints = 50;
+        if ($readings->count() > $maxPoints) {
+            $step = ceil($readings->count() / $maxPoints);
+            $readings = $readings->filter(function ($reading, $index) use ($step) {
+                return $index % $step === 0;
+            })->values();
+        }
+
         // Prepare data for QuickChart
         $labels = [];
         $temps = [];
 
+        $isDaily = $alertType === 'daily_summary';
         foreach ($readings as $reading) {
-            $labels[] = $reading->recorded_at->format('H:i');
+            $labels[] = $reading->recorded_at->format($isDaily ? 'H:i' : 'D H:i');
             $temps[] = round($reading->temperature, 1);
         }
 
-        // Build QuickChart URL
+        // Build QuickChart URL using Chart.js v2 syntax
         $chartConfig = [
             'type' => 'line',
             'data' => [
                 'labels' => $labels,
                 'datasets' => [[
-                    'label' => 'Temperature (°C)',
+                    'label' => 'Temperature',
                     'data' => $temps,
                     'borderColor' => 'rgb(54, 162, 235)',
                     'backgroundColor' => 'rgba(54, 162, 235, 0.1)',
-                    'tension' => 0.4,
+                    'fill' => true,
+                    'lineTension' => 0.4,
+                    'pointRadius' => 2,
                 ]],
             ],
             'options' => [
                 'title' => [
                     'display' => true,
-                    'text' => $device->name . ' Temperature',
+                    'text' => $device->name . ' - Temperature History',
+                    'fontSize' => 16,
+                ],
+                'legend' => [
+                    'display' => false,
                 ],
                 'scales' => [
+                    'xAxes' => [[
+                        'ticks' => [
+                            'maxRotation' => 45,
+                            'minRotation' => 45,
+                        ],
+                    ]],
                     'yAxes' => [[
                         'scaleLabel' => [
                             'display' => true,
                             'labelString' => 'Temperature (°C)',
+                        ],
+                        'ticks' => [
+                            'beginAtZero' => false,
                         ],
                     ]],
                 ],
             ],
         ];
 
-        return 'https://quickchart.io/chart?c=' . urlencode(json_encode($chartConfig)) . '&width=600&height=300';
+        return 'https://quickchart.io/chart?c=' . urlencode(json_encode($chartConfig)) . '&width=800&height=400&devicePixelRatio=2';
     }
 
     private function getDeviceStateData($device): array
@@ -467,8 +492,10 @@ class AlertSubscriptionController extends Controller
 
         foreach ($device->relays as $relay) {
             $currentState = $relay->currentState()->first();
-            $state['relay_' . $relay->name . '_state'] = $currentState ? ($currentState->state ? 'ON' : 'OFF') : 'Unknown';
-            $state['relay_' . $relay->name . '_mode'] = $relay->mode ?? 'manual';
+            $relayKey = 'relay_' . $relay->id;
+            $state[$relayKey . '_name'] = $relay->name;
+            $state[$relayKey . '_state'] = $currentState ? ($currentState->state ? 'ON' : 'OFF') : 'Unknown';
+            $state[$relayKey . '_mode'] = $relay->mode ?? 'manual';
         }
 
         return $state;
