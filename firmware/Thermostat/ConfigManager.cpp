@@ -22,6 +22,11 @@ void ConfigManager::saveSettings(int updateFrequency, bool useFahrenheit) {
     modes.add((int)relayController.getRelayMode(i));
   }
 
+  JsonArray types = doc.createNestedArray("types");
+  for (int i = 0; i < 4; i++) {
+    types.add((int)relayController.getRelayType(i));
+  }
+
   JsonArray onArr = doc.createNestedArray("tempOn");
   for (int i = 0; i < 4; i++) {
     onArr.add(relayController.getTempOn(i));
@@ -90,6 +95,18 @@ void ConfigManager::loadSettings(int& updateFrequency, bool& useFahrenheit) {
     for (int m : modes) {
       if (i < 4) {
         relayController.setRelayMode(i, (Mode)m);
+        i++;
+      }
+    }
+  }
+
+  // Load relay types
+  if (doc.containsKey("types")) {
+    JsonArray types = doc["types"];
+    int i = 0;
+    for (int t : types) {
+      if (i < 4) {
+        relayController.setRelayType(i, (RelayType)t);
         i++;
       }
     }

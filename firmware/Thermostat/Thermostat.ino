@@ -289,6 +289,41 @@ void loop() {
               }
             }
           }
+          else if (cmd.type == "set_relay_type") {
+            JsonDocument paramsDoc;
+            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+
+            if (!error) {
+              int relayNum = paramsDoc["relay_number"];
+              String type = paramsDoc["relay_type"].as<String>();
+
+              if (relayNum >= 1 && relayNum <= 4) {
+                RelayType newType = RelayType::HEATING;
+                if (type == "COOLING") newType = RelayType::COOLING;
+                else if (type == "GENERIC") newType = RelayType::GENERIC;
+                else if (type == "MANUAL_ONLY") newType = RelayType::MANUAL_ONLY;
+
+                relayController.setRelayType(relayNum - 1, newType);
+                relayController.applyRelayLogic(tempManager.getCurrentTemp());
+                configManager.saveSettings(updateFrequency, useFahrenheit);
+
+                // Send updated state back to server
+                int relayIdx = relayNum - 1;
+                apiClient.sendRelayState(
+                  relayNum,
+                  relayController.getRelayState(relayIdx),
+                  RelayController::modeToString(relayController.getRelayMode(relayIdx)),
+                  relayController.getTempOn(relayIdx),
+                  relayController.getTempOff(relayIdx),
+                  "Relay " + String(relayNum)
+                );
+
+                success = true;
+                result = "Relay " + String(relayNum) + " type set to " + type;
+                logger.addLog(result);
+              }
+            }
+          }
           else if (cmd.type == "set_frequency") {
             JsonDocument paramsDoc;
             DeserializationError error = deserializeJson(paramsDoc, cmd.params);

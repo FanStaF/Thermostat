@@ -127,6 +127,26 @@
                     </div>
 
                     <div style="margin: 10px 0;">
+                        <strong>Type:</strong>
+                        @if(auth()->user()->canControl())
+                            <div style="margin-top: 5px;">
+                                <select id="relayType-{{ $relay->relay_number }}"
+                                        onchange="setRelayType({{ $relay->relay_number }})"
+                                        style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                                    <option value="HEATING" {{ ($relay->relay_type ?? 'HEATING') == 'HEATING' ? 'selected' : '' }}>Heating</option>
+                                    <option value="COOLING" {{ ($relay->relay_type ?? 'HEATING') == 'COOLING' ? 'selected' : '' }}>Cooling</option>
+                                    <option value="GENERIC" {{ ($relay->relay_type ?? 'HEATING') == 'GENERIC' ? 'selected' : '' }}>Generic</option>
+                                    <option value="MANUAL_ONLY" {{ ($relay->relay_type ?? 'HEATING') == 'MANUAL_ONLY' ? 'selected' : '' }}>Manual Only</option>
+                                </select>
+                            </div>
+                        @else
+                            <div style="margin-top: 5px;">
+                                <span class="mode-badge">{{ $relay->relay_type ?? 'HEATING' }}</span>
+                            </div>
+                        @endif
+                    </div>
+
+                    <div style="margin: 10px 0;">
                         <strong>Mode:</strong>
                         @if(auth()->user()->canControl())
                             <div style="display: flex; gap: 5px; margin-top: 5px;">
@@ -537,6 +557,32 @@
         });
     }
 
+    function setRelayType(relayNumber) {
+        const relayType = document.getElementById(`relayType-${relayNumber}`).value;
+
+        // Send command to device
+        sendCommand('set_relay_type', {
+            relay_number: relayNumber,
+            relay_type: relayType
+        });
+
+        // Also update in database
+        const card = document.querySelector(`[data-relay-number="${relayNumber}"]`);
+        const relayId = card.dataset.relayId;
+
+        fetch(`/devices/${deviceId}/relays/${relayId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify({ relay_type: relayType })
+        })
+        .catch(error => {
+            console.error('Error updating relay type in database:', error);
+        });
+    }
+
     function setThresholds(relayNumber) {
         let tempOn = parseFloat(document.getElementById(`tempOn-${relayNumber}`).value);
         let tempOff = parseFloat(document.getElementById(`tempOff-${relayNumber}`).value);
@@ -546,10 +592,24 @@
             return;
         }
 
-        if (tempOn <= tempOff) {
-            showMessage('ON temperature must be higher than OFF temperature', true);
-            return;
+        // Get relay type for validation
+        const relayType = document.getElementById(`relayType-${relayNumber}`).value;
+
+        // Validate based on relay type
+        if (relayType === 'HEATING') {
+            // Heating: ON temp should be lower than OFF temp (turn on when cold, off when warm)
+            if (tempOn >= tempOff) {
+                showMessage('For Heating: ON temp (turn on when cold) must be lower than OFF temp (turn off when warm)', true);
+                return;
+            }
+        } else if (relayType === 'COOLING') {
+            // Cooling: ON temp should be higher than OFF temp (turn on when hot, off when cold)
+            if (tempOn <= tempOff) {
+                showMessage('For Cooling: ON temp (turn on when hot) must be higher than OFF temp (turn off when cold)', true);
+                return;
+            }
         }
+        // GENERIC and MANUAL_ONLY: no validation, allow any values
 
         // Convert from Fahrenheit to Celsius if needed (device expects Celsius)
         const useFahrenheit = {{ $device->settings->use_fahrenheit ? 'true' : 'false' }};

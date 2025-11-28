@@ -32,6 +32,7 @@ private:
   void handleRoot();
   void handleStatus();
   void handleSetMode();
+  void handleSetType();
   void handleSetThresholds();
   void handleSetFrequency();
   void handleClearData();
@@ -39,11 +40,6 @@ private:
   void handleLogs();
   void handleData();
 
-  // HTML generation (split into chunks to reduce memory usage)
-  String generateHTML();
-  String generateCSS();
-  String generateBodyHTML();
-  String generateJavaScript();
 };
 
 #endif // WEB_INTERFACE_H

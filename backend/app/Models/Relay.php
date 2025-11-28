@@ -12,6 +12,7 @@ class Relay extends Model
         'device_id',
         'relay_number',
         'name',
+        'relay_type',
     ];
 
     protected $casts = [
