@@ -43,7 +43,9 @@ constexpr int WIFI_MAX_ATTEMPTS = 40;
 constexpr int WIFI_RETRY_DELAY = 500;       // ms
 
 // ---- Default Temperature Settings ----
-constexpr float DEFAULT_TEMP_ON = 25.0;     // °C
-constexpr float DEFAULT_TEMP_OFF = 23.0;    // °C
+// For HEATING: ON when temp drops to tempOn, OFF when temp rises to tempOff
+// For COOLING: ON when temp rises to tempOn, OFF when temp drops to tempOff
+constexpr float DEFAULT_TEMP_ON = 18.0;     // °C (~65°F) - turn on heating when cold
+constexpr float DEFAULT_TEMP_OFF = 21.0;    // °C (~70°F) - turn off heating when warm
 
 #endif // CONFIG_H

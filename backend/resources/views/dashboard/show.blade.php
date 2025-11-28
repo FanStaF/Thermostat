@@ -559,17 +559,10 @@
 
     function setRelayType(relayNumber) {
         const relayType = document.getElementById(`relayType-${relayNumber}`).value;
-
-        // Send command to device
-        sendCommand('set_relay_type', {
-            relay_number: relayNumber,
-            relay_type: relayType
-        });
-
-        // Also update in database
         const card = document.querySelector(`[data-relay-number="${relayNumber}"]`);
         const relayId = card.dataset.relayId;
 
+        // Update in database first
         fetch(`/devices/${deviceId}/relays/${relayId}`, {
             method: 'PATCH',
             headers: {
@@ -578,8 +571,16 @@
             },
             body: JSON.stringify({ relay_type: relayType })
         })
+        .then(response => response.json())
+        .then(data => {
+            // Then send command to device
+            sendCommand('set_relay_type', {
+                relay_number: relayNumber,
+                relay_type: relayType
+            });
+        })
         .catch(error => {
-            console.error('Error updating relay type in database:', error);
+            showMessage('Error updating relay type: ' + error.message, true);
         });
     }
 

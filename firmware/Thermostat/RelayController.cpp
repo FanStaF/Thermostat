@@ -39,14 +39,17 @@ void RelayController::applyRelayLogic(float currentTemp) {
         }
 
         // Apply temperature-based logic depending on relay type
+        // Use small epsilon for floating point comparison to avoid edge flickering
+        const float epsilon = 0.05;  // ~0.1°F tolerance
+
         if (relayTypes[i] == HEATING) {
           // Heating: ON when cold, OFF when warm
-          if (currentTemp <= tempOn[i]) relayStates[i] = true;
-          else if (currentTemp >= tempOff[i]) relayStates[i] = false;
+          if (currentTemp < tempOn[i] - epsilon) relayStates[i] = true;
+          else if (currentTemp > tempOff[i] + epsilon) relayStates[i] = false;
         } else {
           // Cooling/Generic: ON when hot, OFF when cold
-          if (currentTemp >= tempOn[i]) relayStates[i] = true;
-          else if (currentTemp <= tempOff[i]) relayStates[i] = false;
+          if (currentTemp > tempOn[i] + epsilon) relayStates[i] = true;
+          else if (currentTemp < tempOff[i] - epsilon) relayStates[i] = false;
         }
         // Else maintain current state (hysteresis)
         break;
