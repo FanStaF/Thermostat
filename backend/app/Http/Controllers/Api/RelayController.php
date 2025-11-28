@@ -134,16 +134,23 @@ class RelayController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
+            'name' => 'sometimes|string|max:255',
+            'relay_type' => 'sometimes|in:HEATING,COOLING,GENERIC,MANUAL_ONLY',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $relay->update([
-            'name' => $request->name,
-        ]);
+        $updateData = [];
+        if ($request->has('name')) {
+            $updateData['name'] = $request->name;
+        }
+        if ($request->has('relay_type')) {
+            $updateData['relay_type'] = $request->relay_type;
+        }
+
+        $relay->update($updateData);
 
         return response()->json([
             'message' => 'Relay updated successfully',
