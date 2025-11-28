@@ -1,56 +1,54 @@
 # ESP8266 Thermostat System
 
-Multi-relay thermostat controller with ESP8266 firmware and Laravel backend for advanced monitoring and control.
+Multi-relay thermostat controller with ESP8266 firmware and Laravel backend for monitoring and control.
 
 ## Project Structure
 
-This is a monorepo containing both the ESP8266 firmware and Laravel backend:
-
 ```
 Thermostat/
-├── firmware/              # ESP8266 firmware (Arduino/C++)
-│   ├── Thermostat.ino    # Main sketch
-│   ├── Config.h          # Pin definitions and constants
-│   ├── Credentials.h     # WiFi credentials (gitignored)
-│   ├── SystemLogger.*    # Logging system
+├── firmware/Thermostat/   # ESP8266 firmware (Arduino/C++)
+│   ├── Thermostat.ino     # Main sketch
+│   ├── Config.h           # Pin definitions and constants
+│   ├── Credentials.h      # WiFi/API credentials (gitignored)
+│   ├── SystemLogger.*     # In-memory logging system
 │   ├── TemperatureManager.* # DS18B20 sensor management
-│   ├── RelayController.* # Relay control logic
-│   ├── ConfigManager.*   # Settings persistence
-│   ├── WebInterface.*    # Local web UI
-│   └── README.md         # Firmware-specific documentation
-├── backend/              # Laravel backend (PHP)
+│   ├── RelayController.*  # Relay control with type-aware logic
+│   ├── ConfigManager.*    # Settings persistence (LittleFS)
+│   ├── WebInterface.*     # Local web UI
+│   └── ApiClient.*        # Laravel backend communication
+├── backend/               # Laravel backend (PHP)
 │   ├── app/
 │   ├── database/
 │   ├── routes/
-│   └── README.md         # Backend-specific documentation
-├── docs/                 # Documentation
-│   └── LARAVEL_INTEGRATION_PLAN.md
-└── README.md            # This file
+│   └── resources/views/
+└── README.md              # This file
 ```
 
-## Components
+## Features
 
-### Firmware (ESP8266)
-Arduino-based firmware for the LOLIN(WEMOS) D1 mini with:
-- 4-relay control (AUTO/MANUAL modes)
-- DS18B20 temperature monitoring
-- Local web interface
+### Firmware
+- 4 independent relay controllers
+- **Relay types**: HEATING, COOLING, GENERIC, MANUAL_ONLY
+- AUTO mode with hysteresis and type-aware temperature logic
+- MANUAL ON/OFF modes
+- Local web interface (works offline)
+- Temperature logging to LittleFS
+- Real-time temperature charts
+- Celsius/Fahrenheit support
 - OTA firmware updates
-- LittleFS configuration storage
-- **NEW:** API client for Laravel backend integration
-
-**See:** [firmware/README.md](firmware/README.md)
+- Persistent settings
+- System logs with filtering and pagination
+- API client for backend communication
 
 ### Backend (Laravel)
-Laravel application providing:
-- RESTful API for device communication
-- Historical temperature data storage
-- Advanced charting and analytics
-- Remote device control
-- Multi-user authentication
-- Mobile-responsive dashboard
-
-**See:** [backend/README.md](backend/README.md) *(Coming soon)*
+- Device registration and authentication
+- Temperature data storage and history
+- Remote relay control via command queue
+- Dashboard with real-time charts
+- Device logs viewer (fetches from device)
+- Email reports with relay activity statistics
+- Alert notifications for temperature thresholds
+- Multi-device support
 
 ## Hardware
 
@@ -58,56 +56,51 @@ Laravel application providing:
 - **Sensor:** DS18B20 temperature sensor on pin D2
 - **Relays:** 4x relays on pins D1, D5, D6, D7 (active-LOW)
 
-## Features
+## Relay Types
 
-### Current (Firmware Only)
-- ✓ 4 independent relay controllers
-- ✓ AUTO mode with hysteresis
-- ✓ MANUAL ON/OFF modes
-- ✓ Local web interface
-- ✓ Temperature logging to LittleFS
-- ✓ Basic charts
-- ✓ Celsius/Fahrenheit support
-- ✓ OTA updates
-- ✓ Persistent settings
+| Type | Description | ON Condition | OFF Condition |
+|------|-------------|--------------|---------------|
+| HEATING | Floor heat, heaters | Temp < ON threshold | Temp > OFF threshold |
+| COOLING | AC, fans | Temp > ON threshold | Temp < OFF threshold |
+| GENERIC | General purpose | Temp > ON threshold | Temp < OFF threshold |
+| MANUAL_ONLY | No auto control | Manual only | Manual only |
 
-### Coming Soon (Laravel Integration)
-- ⏳ Cloud data storage
-- ⏳ Advanced historical charts
-- ⏳ Remote access from anywhere
-- ⏳ Multi-device support
-- ⏳ User authentication
-- ⏳ Email/SMS alerts
-- ⏳ Scheduling and automation
-- ⏳ Data export (CSV/Excel)
-- ⏳ Mobile-responsive dashboard
+**Example (HEATING):** ON=65°F, OFF=70°F
+- Turns ON when temp drops below 65°F
+- Turns OFF when temp rises above 70°F
 
 ## Quick Start
 
 ### 1. Firmware Setup
 
 ```bash
-cd firmware
+cd firmware/Thermostat
 cp Credentials.h.example Credentials.h
-# Edit Credentials.h with your WiFi details
-./build.sh
-./upload.sh
+# Edit Credentials.h with your WiFi and API details
 ```
 
-See [firmware/README.md](firmware/README.md) for detailed instructions.
+Build and upload using Arduino IDE or CLI:
+```bash
+arduino-cli compile --fqbn esp8266:esp8266:d1_mini_clone .
+arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port /dev/ttyUSB0 .
+```
 
-### 2. Backend Setup (Coming Soon)
+Or use OTA upload (after initial flash):
+```bash
+arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port <device-ip> .
+```
+
+### 2. Backend Setup
 
 ```bash
 cd backend
 composer install
 cp .env.example .env
 php artisan key:generate
+# Configure database in .env
 php artisan migrate
 php artisan serve
 ```
-
-See [backend/README.md](backend/README.md) for detailed instructions.
 
 ## Architecture
 
@@ -121,64 +114,93 @@ See [backend/README.md](backend/README.md) for detailed instructions.
          │
 ┌────────▼────────┐
 │   Laravel       │
-│   Backend       │
-│   + Database    │
-└────────┬────────┘
-         │
-┌────────▼────────┐
-│   Web Dashboard │◄──── Internet Access (Remote)
+│   Backend       │◄──── Internet Access (Dashboard)
+│   + MySQL       │
 └─────────────────┘
 ```
 
 **Hybrid Approach:**
 - ESP8266 has local web interface (works offline)
-- Laravel adds cloud features (historical data, remote access)
+- Laravel adds cloud features (historical data, remote access, alerts)
 - Best of both worlds: reliability + advanced features
+
+## API Endpoints
+
+### Device → Backend
+- `POST /api/devices/register` - Register device, get auth token
+- `POST /api/devices/{id}/heartbeat` - Keep-alive signal
+- `POST /api/devices/{id}/temperature` - Send temperature reading
+- `POST /api/devices/{id}/relay-state` - Send relay state update
+- `GET /api/devices/{id}/commands/pending` - Poll for commands
+- `PUT /api/devices/{id}/commands/{cmd}` - Acknowledge command
+
+### Dashboard → Backend
+- `GET /dashboard` - Device list
+- `GET /dashboard/{id}` - Device detail with charts
+- `POST /api/devices/{id}/commands` - Queue command for device
+- `PUT /api/relays/{id}` - Update relay settings
+
+## Configuration
+
+### Firmware (`Credentials.h`)
+```cpp
+#define WIFI_SSID "your-wifi"
+#define WIFI_PASSWORD "your-password"
+#define API_URL "https://your-server.com"
+#define API_KEY "your-api-key"
+```
+
+### Backend (`.env`)
+```env
+DB_CONNECTION=mysql
+DB_DATABASE=thermostat
+MAIL_MAILER=smtp
+# ... standard Laravel config
+```
 
 ## Development
 
-### Branch Strategy
-- `main` - Stable releases
-- `feature/*` - Feature branches (e.g., `feature/laravel-integration`)
-
-### Firmware Development
+### Firmware
 ```bash
-cd firmware
+cd firmware/Thermostat
 # Make changes
 arduino-cli compile --fqbn esp8266:esp8266:d1_mini_clone .
-arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port 192.168.1.67 .
+arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port <ip-or-port> .
 ```
 
-### Backend Development
+### Backend
 ```bash
 cd backend
-php artisan serve
-php artisan test
+php artisan serve        # Start dev server
+php artisan migrate      # Run migrations
+php artisan test         # Run tests
 ```
-
-## Contributing
-
-This is a personal project, but feel free to fork and adapt for your own use.
-
-## Documentation
-
-- [Integration Plan](docs/LARAVEL_INTEGRATION_PLAN.md) - Complete Laravel integration architecture
-- [Firmware README](firmware/README.md) - ESP8266 firmware details
-- [Backend README](backend/README.md) - Laravel backend details *(Coming soon)*
-
-## License
-
-Project created with Claude Code.
 
 ## Changelog
 
-### v2.0.0 (In Development) - Laravel Integration
-- Reorganized into monorepo structure
-- Laravel backend development in progress
-- API client module for firmware
+### v2.1.0 - Relay Types & Logging Improvements
+- Added relay types (HEATING, COOLING, GENERIC, MANUAL_ONLY)
+- Type-aware temperature control logic with hysteresis
+- Improved logging with filtering and pagination
+- Device logs accessible from server dashboard
+- CORS support for cross-origin log fetching
+- Reduced verbose logging for cleaner output
+- Memory optimization using PROGMEM for web interface
+
+### v2.0.0 - Laravel Integration
+- Laravel backend with MySQL database
+- Device registration and authentication
+- Remote relay control via command queue
+- Dashboard with temperature charts
+- Email reports and alerts
+- Multi-device support
 
 ### v1.0.0 - Initial Release
 - Modular ESP8266 firmware
 - Local web interface
 - 4-relay control
 - Temperature monitoring and logging
+
+## License
+
+MIT License

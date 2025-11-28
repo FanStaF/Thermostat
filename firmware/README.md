@@ -1,184 +1,221 @@
-# ESP8266 Thermostat System
+# ESP8266 Thermostat Firmware
 
-Multi-relay thermostat controller with ESP8266 firmware and Laravel backend for advanced monitoring and control.
+Arduino firmware for the ESP8266-based thermostat controller.
 
-## Project Structure
+## Hardware Requirements
 
-This is a monorepo containing both the ESP8266 firmware and Laravel backend:
+- **Board:** LOLIN(WEMOS) D1 mini or compatible ESP8266
+- **Sensor:** DS18B20 temperature sensor
+- **Relays:** 4x relay module (active-LOW)
 
-```
-Thermostat/
-├── firmware/              # ESP8266 firmware (Arduino/C++)
-│   ├── Thermostat.ino    # Main sketch
-│   ├── Config.h          # Pin definitions and constants
-│   ├── Credentials.h     # WiFi credentials (gitignored)
-│   ├── SystemLogger.*    # Logging system
-│   ├── TemperatureManager.* # DS18B20 sensor management
-│   ├── RelayController.* # Relay control logic
-│   ├── ConfigManager.*   # Settings persistence
-│   ├── WebInterface.*    # Local web UI
-│   └── README.md         # Firmware-specific documentation
-├── backend/              # Laravel backend (PHP)
-│   ├── app/
-│   ├── database/
-│   ├── routes/
-│   └── README.md         # Backend-specific documentation
-├── docs/                 # Documentation
-│   └── LARAVEL_INTEGRATION_PLAN.md
-└── README.md            # This file
-```
+### Pin Configuration
 
-## Components
-
-### Firmware (ESP8266)
-Arduino-based firmware for the LOLIN(WEMOS) D1 mini with:
-- 4-relay control (AUTO/MANUAL modes)
-- DS18B20 temperature monitoring
-- Local web interface
-- OTA firmware updates
-- LittleFS configuration storage
-- **NEW:** API client for Laravel backend integration
-
-**See:** [firmware/README.md](firmware/README.md)
-
-### Backend (Laravel)
-Laravel application providing:
-- RESTful API for device communication
-- Historical temperature data storage
-- Advanced charting and analytics
-- Remote device control
-- Multi-user authentication
-- Mobile-responsive dashboard
-
-**See:** [backend/README.md](backend/README.md) *(Coming soon)*
-
-## Hardware
-
-- **Board:** LOLIN(WEMOS) D1 mini (ESP8266)
-- **Sensor:** DS18B20 temperature sensor on pin D2
-- **Relays:** 4x relays on pins D1, D5, D6, D7 (active-LOW)
+| Pin | Function |
+|-----|----------|
+| D1 | Relay 1 |
+| D2 | DS18B20 Data (with 4.7k pull-up) |
+| D5 | Relay 2 |
+| D6 | Relay 3 |
+| D7 | Relay 4 |
 
 ## Features
 
-### Current (Firmware Only)
-- ✓ 4 independent relay controllers
-- ✓ AUTO mode with hysteresis
-- ✓ MANUAL ON/OFF modes
-- ✓ Local web interface
-- ✓ Temperature logging to LittleFS
-- ✓ Basic charts
-- ✓ Celsius/Fahrenheit support
-- ✓ OTA updates
-- ✓ Persistent settings
+- **4 Independent Relays** with individual control modes
+- **Relay Types:** HEATING, COOLING, GENERIC, MANUAL_ONLY
+- **Control Modes:** AUTO, MANUAL_ON, MANUAL_OFF
+- **Temperature Monitoring** with DS18B20 sensor
+- **Local Web Interface** (works without internet)
+- **Backend Integration** via REST API
+- **OTA Updates** for remote firmware updates
+- **Persistent Settings** stored in LittleFS
+- **System Logging** with filtering and remote access
 
-### Coming Soon (Laravel Integration)
-- ⏳ Cloud data storage
-- ⏳ Advanced historical charts
-- ⏳ Remote access from anywhere
-- ⏳ Multi-device support
-- ⏳ User authentication
-- ⏳ Email/SMS alerts
-- ⏳ Scheduling and automation
-- ⏳ Data export (CSV/Excel)
-- ⏳ Mobile-responsive dashboard
+## Relay Types
 
-## Quick Start
+The relay type determines how temperature thresholds are interpreted:
 
-### 1. Firmware Setup
+### HEATING (e.g., floor heat, space heaters)
+- **ON:** Temperature drops below ON threshold
+- **OFF:** Temperature rises above OFF threshold
+- Example: ON=65°F, OFF=70°F turns on heat when cold
+
+### COOLING (e.g., AC, fans)
+- **ON:** Temperature rises above ON threshold
+- **OFF:** Temperature drops below OFF threshold
+- Example: ON=75°F, OFF=70°F turns on cooling when hot
+
+### GENERIC
+- Same logic as COOLING (ON when temp > threshold)
+
+### MANUAL_ONLY
+- No automatic control, only responds to manual commands
+
+## File Structure
+
+```
+Thermostat/
+├── Thermostat.ino       # Main sketch
+├── Config.h             # Pin definitions, constants
+├── Credentials.h        # WiFi/API credentials (gitignored)
+├── Credentials.h.example # Template for credentials
+├── SystemLogger.h/cpp   # In-memory logging (500 entries)
+├── TemperatureManager.h/cpp # DS18B20 sensor handling
+├── RelayController.h/cpp # Relay logic with type support
+├── ConfigManager.h/cpp  # Settings persistence
+├── WebInterface.h/cpp   # Local web server
+└── ApiClient.h/cpp      # Backend API communication
+```
+
+## Setup
+
+### 1. Install Dependencies
+
+Using Arduino IDE Library Manager or arduino-cli:
 
 ```bash
-cd firmware
+arduino-cli lib install "OneWire"
+arduino-cli lib install "DallasTemperature"
+arduino-cli lib install "ArduinoJson"
+```
+
+### 2. Configure Credentials
+
+```bash
 cp Credentials.h.example Credentials.h
-# Edit Credentials.h with your WiFi details
-./build.sh
-./upload.sh
 ```
 
-See [firmware/README.md](firmware/README.md) for detailed instructions.
+Edit `Credentials.h`:
+```cpp
+#define WIFI_SSID "your-wifi-ssid"
+#define WIFI_PASSWORD "your-wifi-password"
+#define API_URL "https://your-server.com"
+#define API_KEY "your-api-key"
+```
 
-### 2. Backend Setup (Coming Soon)
+### 3. Build & Upload
 
 ```bash
-cd backend
-composer install
-cp .env.example .env
-php artisan key:generate
-php artisan migrate
-php artisan serve
-```
-
-See [backend/README.md](backend/README.md) for detailed instructions.
-
-## Architecture
-
-```
-┌─────────────────┐
-│   ESP8266       │
-│   Thermostat    │◄──── Local Network (Direct Access)
-│                 │
-└────────┬────────┘
-         │ HTTPS REST API
-         │
-┌────────▼────────┐
-│   Laravel       │
-│   Backend       │
-│   + Database    │
-└────────┬────────┘
-         │
-┌────────▼────────┐
-│   Web Dashboard │◄──── Internet Access (Remote)
-└─────────────────┘
-```
-
-**Hybrid Approach:**
-- ESP8266 has local web interface (works offline)
-- Laravel adds cloud features (historical data, remote access)
-- Best of both worlds: reliability + advanced features
-
-## Development
-
-### Branch Strategy
-- `main` - Stable releases
-- `feature/*` - Feature branches (e.g., `feature/laravel-integration`)
-
-### Firmware Development
-```bash
-cd firmware
-# Make changes
+# Compile
 arduino-cli compile --fqbn esp8266:esp8266:d1_mini_clone .
-arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port 192.168.1.67 .
+
+# Upload via USB
+arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port /dev/ttyUSB0 .
+
+# Upload via OTA (after initial flash)
+arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port 192.168.1.x .
 ```
 
-### Backend Development
+## Web Interface
+
+Access the local web interface at `http://<device-ip>/`
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Main control interface |
+| `/status` | GET | JSON status of all relays |
+| `/setmode` | GET | Set relay mode (AUTO/ON/OFF) |
+| `/settype` | GET | Set relay type |
+| `/setthresholds` | GET | Set temperature thresholds |
+| `/setfreq` | GET | Set update frequency |
+| `/setunit` | GET | Toggle Celsius/Fahrenheit |
+| `/logs` | GET | System logs page |
+| `/logs.json` | GET | System logs as JSON (CORS enabled) |
+| `/data` | GET | Temperature history CSV |
+| `/cleardata` | GET | Clear temperature history |
+
+### Example API Calls
+
 ```bash
-cd backend
-php artisan serve
-php artisan test
+# Get status
+curl http://192.168.1.x/status
+
+# Set relay 1 to AUTO mode
+curl "http://192.168.1.x/setmode?relay=0&mode=AUTO"
+
+# Set relay 1 type to HEATING
+curl "http://192.168.1.x/settype?relay=0&type=HEATING"
+
+# Set thresholds (in Celsius)
+curl "http://192.168.1.x/setthresholds?relay=0&on=18&off=21"
+
+# Get logs as JSON
+curl "http://192.168.1.x/logs.json?limit=100"
 ```
 
-## Contributing
+## Configuration Constants
 
-This is a personal project, but feel free to fork and adapt for your own use.
+Edit `Config.h` to customize:
 
-## Documentation
+```cpp
+// Pins
+constexpr uint8_t RELAY_PINS[] = {D1, D5, D6, D7};
+constexpr uint8_t TEMP_SENSOR_PIN = D2;
 
-- [Integration Plan](docs/LARAVEL_INTEGRATION_PLAN.md) - Complete Laravel integration architecture
-- [Firmware README](firmware/README.md) - ESP8266 firmware details
-- [Backend README](backend/README.md) - Laravel backend details *(Coming soon)*
+// Defaults
+constexpr float DEFAULT_TEMP_ON = 18.3;   // 65°F
+constexpr float DEFAULT_TEMP_OFF = 21.1;  // 70°F
+constexpr int DEFAULT_UPDATE_FREQUENCY = 5; // seconds
 
-## License
+// Logging
+constexpr int MAX_SYSTEM_LOGS = 500;
 
-Project created with Claude Code.
+// API
+constexpr int API_SYNC_INTERVAL = 60;     // seconds
+constexpr int API_COMMAND_POLL_INTERVAL = 30; // seconds
+```
 
-## Changelog
+## Backend Communication
 
-### v2.0.0 (In Development) - Laravel Integration
-- Reorganized into monorepo structure
-- Laravel backend development in progress
-- API client module for firmware
+The firmware communicates with the Laravel backend via REST API:
 
-### v1.0.0 - Initial Release
-- Modular ESP8266 firmware
-- Local web interface
-- 4-relay control
-- Temperature monitoring and logging
+### Registration
+On boot, registers with backend and receives auth token.
+
+### Heartbeat
+Sends periodic heartbeat to update online status.
+
+### Temperature
+Posts temperature readings at configured interval.
+
+### Relay State
+Reports relay state changes to backend.
+
+### Commands
+Polls for pending commands (mode changes, threshold updates, etc.)
+
+## Logging
+
+The firmware maintains an in-memory log of 500 entries. Logs are accessible via:
+
+- **Local:** `http://<device-ip>/logs`
+- **JSON API:** `http://<device-ip>/logs.json`
+- **Server Dashboard:** Fetches logs via CORS-enabled endpoint
+
+Log filtering hides repetitive messages (heartbeats, temp posts) by default.
+
+## Memory Optimization
+
+The web interface uses PROGMEM to store HTML/CSS/JS in flash memory, avoiding RAM allocation issues on the ESP8266's limited 80KB heap.
+
+## Troubleshooting
+
+### Web interface doesn't load
+- Check free heap memory in logs
+- Ensure only one client connects at a time
+- Restart device if heap is fragmented
+
+### Temperature reads -127°C
+- Check DS18B20 wiring
+- Verify 4.7k pull-up resistor on data line
+- Ensure correct pin in Config.h
+
+### API connection fails
+- Verify WiFi connection
+- Check API_URL in Credentials.h
+- Ensure HTTPS certificate is valid (or use setInsecure())
+
+### Relay cycles rapidly
+- Increase hysteresis gap between ON and OFF thresholds
+- Check relay type matches your use case (HEATING vs COOLING)

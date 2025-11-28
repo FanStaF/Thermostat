@@ -1,59 +1,212 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Thermostat Backend
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel backend for the ESP8266 Thermostat system.
 
-## About Laravel
+## Requirements
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP 8.2+
+- Composer
+- MySQL 8.0+ or MariaDB
+- Node.js 18+ (for frontend assets)
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Installation
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+```bash
+cd backend
+composer install
+npm install
+cp .env.example .env
+php artisan key:generate
+```
 
-## Learning Laravel
+Configure database in `.env`:
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=thermostat
+DB_USERNAME=your_username
+DB_PASSWORD=your_password
+```
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+Run migrations:
+```bash
+php artisan migrate
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Build frontend assets:
+```bash
+npm run build
+```
 
-## Laravel Sponsors
+## Development
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```bash
+php artisan serve
+```
 
-### Premium Partners
+Access at http://localhost:8000
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## Features
 
-## Contributing
+### Device Management
+- Automatic device registration via API
+- Token-based authentication for devices
+- Online/offline status tracking
+- Multi-device support
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Temperature Monitoring
+- Store temperature readings from devices
+- Historical data with configurable retention
+- Temperature charts with date range selection
 
-## Code of Conduct
+### Relay Control
+- Remote relay mode control (AUTO/ON/OFF)
+- Relay type configuration (HEATING/COOLING/GENERIC/MANUAL_ONLY)
+- Temperature threshold management
+- Command queue for device communication
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### Dashboard
+- Device overview with current status
+- Real-time temperature display
+- Relay control panel
+- Temperature history charts
+- Device logs viewer
 
-## Security Vulnerabilities
+### Alerts & Reports
+- Email alerts for temperature thresholds
+- Scheduled report emails with relay activity
+- Configurable alert settings per device
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Database Schema
 
-## License
+### Tables
+- `devices` - Registered ESP8266 devices
+- `temperature_readings` - Temperature history
+- `relays` - Relay configuration (4 per device)
+- `device_commands` - Command queue for devices
+- `device_settings` - Per-device settings
+- `alerts` - Alert configuration
+- `users` - Dashboard users
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## API Endpoints
+
+### Device API (used by ESP8266)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/devices/register` | Register device, get token |
+| POST | `/api/devices/{id}/heartbeat` | Update online status |
+| POST | `/api/devices/{id}/temperature` | Submit temperature reading |
+| POST | `/api/devices/{id}/relay-state` | Update relay state |
+| GET | `/api/devices/{id}/commands/pending` | Get pending commands |
+| PUT | `/api/devices/{id}/commands/{cmd}` | Acknowledge command |
+
+### Dashboard API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/dashboard` | Device list |
+| GET | `/dashboard/{id}` | Device detail |
+| POST | `/api/devices/{id}/commands` | Queue command |
+| PUT | `/api/relays/{id}` | Update relay settings |
+| GET | `/api/devices/{id}/temperature-history` | Get chart data |
+
+## Command Types
+
+Commands queued for devices:
+
+| Type | Params | Description |
+|------|--------|-------------|
+| `set_relay_mode` | `relay`, `mode` | Change relay mode |
+| `set_relay_type` | `relay`, `type` | Change relay type |
+| `set_thresholds` | `relay`, `temp_on`, `temp_off` | Set thresholds |
+| `set_frequency` | `seconds` | Update frequency |
+| `set_unit` | `fahrenheit` | Toggle temp unit |
+| `restart` | - | Restart device |
+
+## Configuration
+
+### Environment Variables
+
+```env
+# App
+APP_NAME="Thermostat Monitor"
+APP_URL=https://your-domain.com
+
+# Database
+DB_CONNECTION=mysql
+DB_DATABASE=thermostat
+
+# Mail (for alerts/reports)
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.example.com
+MAIL_PORT=587
+MAIL_USERNAME=your-email
+MAIL_PASSWORD=your-password
+MAIL_FROM_ADDRESS=thermostat@example.com
+
+# Queue (for scheduled tasks)
+QUEUE_CONNECTION=database
+```
+
+### Scheduled Tasks
+
+Add to crontab for scheduled reports and alerts:
+```bash
+* * * * * cd /path/to/backend && php artisan schedule:run >> /dev/null 2>&1
+```
+
+## Deployment
+
+### Production Setup
+
+1. Configure web server (Nginx/Apache)
+2. Set `APP_ENV=production` and `APP_DEBUG=false`
+3. Run `php artisan config:cache`
+4. Run `php artisan route:cache`
+5. Set up SSL certificate
+6. Configure queue worker for background jobs
+
+### Example Nginx Config
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name thermostat.example.com;
+    root /var/www/thermostat/backend/public;
+
+    ssl_certificate /etc/letsencrypt/live/thermostat.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/thermostat.example.com/privkey.pem;
+
+    index index.php;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+```
+
+## Testing
+
+```bash
+php artisan test
+```
+
+## Maintenance
+
+### Clear old temperature data
+```bash
+php artisan thermostat:cleanup --days=90
+```
+
+### View device status
+```bash
+php artisan thermostat:status
+```
