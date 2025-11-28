@@ -59,7 +59,7 @@ class CommandController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'type' => 'required|in:set_relay_mode,set_thresholds,set_frequency,set_unit,restart',
+            'type' => 'required|in:set_relay_mode,set_relay_type,set_thresholds,set_frequency,set_unit,restart',
             'params' => 'required|array',
         ]);
 
