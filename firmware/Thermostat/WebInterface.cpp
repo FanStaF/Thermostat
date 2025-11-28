@@ -310,13 +310,13 @@ void WebInterface::handleLogs() {
 
     if (filterRepetitive) {
       // Check for repetitive messages - only show the most recent of each type
-      if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0) {
+      if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0 || msg.indexOf("/heartbeat") >= 0) {
         if (lastHeartbeat >= 0) isRepetitive = true;
         else lastHeartbeat = i;
-      } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0) {
+      } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0 || msg.indexOf("/temperature :") >= 0) {
         if (lastTempPost >= 0) isRepetitive = true;
         else lastTempPost = i;
-      } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0) {
+      } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0 || msg.indexOf("/commands/pending") >= 0) {
         if (lastCommandPoll >= 0) isRepetitive = true;
         else lastCommandPoll = i;
       }
@@ -390,13 +390,13 @@ void WebInterface::handleLogsJson() {
     bool isRepetitive = false;
 
     if (filterRepetitive) {
-      if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0) {
+      if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0 || msg.indexOf("/heartbeat") >= 0) {
         if (lastHeartbeat >= 0) isRepetitive = true;
         else lastHeartbeat = i;
-      } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0) {
+      } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0 || msg.indexOf("/temperature :") >= 0) {
         if (lastTempPost >= 0) isRepetitive = true;
         else lastTempPost = i;
-      } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0) {
+      } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0 || msg.indexOf("/commands/pending") >= 0) {
         if (lastCommandPoll >= 0) isRepetitive = true;
         else lastCommandPoll = i;
       }
@@ -475,7 +475,4 @@ void WebInterface::handleData() {
 
   f.close();
   server.sendContent(""); // Signal end of chunked response
-
-  logger.addLog("Streamed " + String(lineCount) + " lines (~" +
-                String(lineCount * updateFrequency / 3600) + "h)");
 }

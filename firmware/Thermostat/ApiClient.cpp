@@ -17,20 +17,9 @@ void ApiClient::begin() {
     wifiClientSecure.setInsecure();
     // Reduce buffer size to save memory (ESP8266 has limited RAM)
     wifiClientSecure.setBufferSizes(512, 512);
-    logger.addLog("Using HTTPS");
-  } else {
-    logger.addLog("Using HTTP");
   }
 
   loadToken();
-  logger.addLog("API Client initialized");
-  if (authToken.length() > 0) {
-    logger.addLog("Auth token loaded (length: " + String(authToken.length()) + ")");
-  } else {
-    logger.addLog("No auth token found");
-  }
-
-  logger.addLog("Free heap: " + String(ESP.getFreeHeap()));
 }
 
 void ApiClient::loadToken() {
@@ -49,7 +38,7 @@ void ApiClient::loadToken() {
 
 void ApiClient::saveToken(const String& token) {
   if (!LittleFS.begin()) {
-    logger.addLog("Failed to mount LittleFS for token save");
+    logger.addLog("ERROR: Failed to mount LittleFS");
     return;
   }
 
@@ -58,15 +47,12 @@ void ApiClient::saveToken(const String& token) {
     file.print(token);
     file.close();
     authToken = token;
-    logger.addLog("Auth token saved");
   } else {
-    logger.addLog("Failed to save token");
+    logger.addLog("ERROR: Failed to save auth token");
   }
 }
 
 bool ApiClient::registerDevice(const String& hostname, const String& macAddress, const String& ipAddress, const String& firmwareVersion) {
-  logger.addLog("Attempting registration to: " + String(apiUrl));
-
   JsonDocument doc;
   doc["hostname"] = hostname;
   doc["mac_address"] = macAddress;
@@ -75,47 +61,33 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);
-  logger.addLog("Payload: " + jsonPayload);
 
-  // Special handling for registration - use API key instead of auth token
   if (WiFi.status() != WL_CONNECTED) {
-    logger.addLog("WiFi not connected");
+    logger.addLog("Registration failed: WiFi not connected");
     return false;
   }
 
   HTTPClient http;
   String url = apiUrl + "/api/devices/register";
-  logger.addLog("POST to: " + url);
 
-  // Set longer timeout for HTTPS
   http.setTimeout(15000);
 
-  // Use appropriate client based on protocol
   bool beginSuccess = useHttps ? http.begin(wifiClientSecure, url) : http.begin(wifiClient, url);
   if (!beginSuccess) {
-    logger.addLog("ERROR: Failed to begin HTTP connection");
+    logger.addLog("Registration failed: HTTP connection error");
     return false;
   }
 
-  // Follow redirects automatically (e.g., HTTP -> HTTPS)
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
   http.addHeader("X-API-Key", API_KEY);
 
   int httpCode = http.POST(jsonPayload);
-  logger.addLog("HTTP Code: " + String(httpCode));
 
-  if (httpCode == -1) {
-    logger.addLog("ERROR: Connection failed - check URL/SSL/DNS");
-  }
-
-  // Always get the response body for debugging
   String response = "";
   if (httpCode > 0) {
     response = http.getString();
-    logger.addLog("Response: " + response);
   }
 
   if (httpCode > 0 && (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED)) {
@@ -127,29 +99,22 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
     if (!error && responseDoc.containsKey("device_id") && responseDoc.containsKey("token")) {
       deviceId = responseDoc["device_id"];
       String token = responseDoc["token"].as<String>();
-      logger.addLog("Received token (length: " + String(token.length()) + ")");
       saveToken(token);
-      logger.addLog("Device registered with ID: " + String(deviceId));
+      logger.addLog("Registered as device ID: " + String(deviceId));
       return true;
     } else {
-      if (error) {
-        logger.addLog("JSON parse error: " + String(error.c_str()));
-      } else {
-        logger.addLog("Response missing device_id or token");
-      }
+      logger.addLog("Registration failed: Invalid response");
     }
   } else {
-    logger.addLog("HTTP request error: " + String(httpCode));
+    logger.addLog("Registration failed: HTTP " + String(httpCode));
     http.end();
   }
 
-  logger.addLog("Device registration failed");
   return false;
 }
 
 bool ApiClient::sendHeartbeat() {
   if (deviceId <= 0) {
-    logger.addLog("Cannot send heartbeat: device not registered");
     return false;
   }
 
@@ -162,18 +127,11 @@ bool ApiClient::sendHeartbeat() {
   String response;
   String endpoint = "/api/devices/" + String(deviceId) + "/heartbeat";
 
-  if (makePostRequest(endpoint, jsonPayload, response)) {
-    logger.addLog("Heartbeat sent successfully");
-    return true;
-  }
-
-  logger.addLog("Heartbeat failed");
-  return false;
+  return makePostRequest(endpoint, jsonPayload, response);
 }
 
 bool ApiClient::sendTemperatureReading(float temperature, int sensorId) {
   if (deviceId <= 0) {
-    logger.addLog("Cannot send temperature: device not registered");
     return false;
   }
 
@@ -187,16 +145,11 @@ bool ApiClient::sendTemperatureReading(float temperature, int sensorId) {
   String response;
   String endpoint = "/api/devices/" + String(deviceId) + "/temperature";
 
-  if (makePostRequest(endpoint, jsonPayload, response)) {
-    return true;
-  }
-
-  return false;
+  return makePostRequest(endpoint, jsonPayload, response);
 }
 
 bool ApiClient::sendRelayState(int relayNumber, bool state, const String& mode, float tempOn, float tempOff, const String& name) {
   if (deviceId <= 0) {
-    logger.addLog("Cannot send relay state: device not registered");
     return false;
   }
 
@@ -295,9 +248,13 @@ bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayloa
     return false;
   }
 
+  if (authToken.length() == 0) {
+    logger.addLog("ERROR: No auth token for request!");
+    return false;
+  }
+
   HTTPClient http;
   String url = apiUrl + endpoint;
-  logger.addLog("POST to: " + url);
 
   // Use appropriate client based on protocol
   if (useHttps) {
@@ -312,20 +269,15 @@ bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayloa
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
-
-  // Add Bearer token for authenticated requests
-  if (authToken.length() > 0) {
-    http.addHeader("Authorization", "Bearer " + authToken);
-    logger.addLog("Using auth token (length: " + String(authToken.length()) + ")");
-  } else {
-    logger.addLog("WARNING: No auth token for request!");
-  }
+  http.addHeader("Authorization", "Bearer " + authToken);
 
   int httpCode = http.POST(jsonPayload);
-  logger.addLog("HTTP Code: " + String(httpCode));
+
+  // Combined log: endpoint and response code
+  logger.addLog("POST " + endpoint + " : " + String(httpCode));
 
   if (httpCode == -5) {
-    logger.addLog("ERROR: Connection timeout/failed");
+    logger.addLog("ERROR: Connection timeout");
   }
 
   if (httpCode > 0) {
@@ -334,13 +286,12 @@ bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayloa
     return (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED);
   }
 
-  logger.addLog("HTTP request error: " + String(httpCode));
   http.end();
   return false;
 }
 
 bool ApiClient::makeGetRequest(const String& endpoint, String& response) {
-  if (WiFi.status() != WL_CONNECTED) {
+  if (WiFi.status() != WL_CONNECTED || authToken.length() == 0) {
     return false;
   }
 
@@ -359,16 +310,13 @@ bool ApiClient::makeGetRequest(const String& endpoint, String& response) {
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 
   http.addHeader("Accept", "application/json");
-
-  // Add Bearer token for authenticated requests
-  if (authToken.length() > 0) {
-    http.addHeader("Authorization", "Bearer " + authToken);
-  }
+  http.addHeader("Authorization", "Bearer " + authToken);
 
   int httpCode = http.GET();
 
-  if (httpCode == -5) {
-    logger.addLog("ERROR: GET connection timeout/failed");
+  // Only log errors, not successful polling
+  if (httpCode <= 0 || httpCode >= 400) {
+    logger.addLog("GET " + endpoint + " : " + String(httpCode));
   }
 
   if (httpCode > 0) {
@@ -382,7 +330,7 @@ bool ApiClient::makeGetRequest(const String& endpoint, String& response) {
 }
 
 bool ApiClient::makePutRequest(const String& endpoint, const String& jsonPayload, String& response) {
-  if (WiFi.status() != WL_CONNECTED) {
+  if (WiFi.status() != WL_CONNECTED || authToken.length() == 0) {
     return false;
   }
 
@@ -402,17 +350,12 @@ bool ApiClient::makePutRequest(const String& endpoint, const String& jsonPayload
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
-
-  // Add Bearer token for authenticated requests
-  if (authToken.length() > 0) {
-    http.addHeader("Authorization", "Bearer " + authToken);
-  }
+  http.addHeader("Authorization", "Bearer " + authToken);
 
   int httpCode = http.PUT(jsonPayload);
 
-  if (httpCode == -5) {
-    logger.addLog("ERROR: PUT connection timeout/failed");
-  }
+  // Combined log: endpoint and response code
+  logger.addLog("PUT " + endpoint + " : " + String(httpCode));
 
   if (httpCode > 0) {
     response = http.getString();

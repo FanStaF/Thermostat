@@ -7,14 +7,10 @@ ConfigManager::ConfigManager(RelayController& relayCtrl)
 void ConfigManager::begin() {
   if (!LittleFS.begin()) {
     logger.addLog("ERROR: LittleFS mount failed!");
-  } else {
-    logger.addLog("LittleFS mounted OK");
   }
 }
 
 void ConfigManager::saveSettings(int updateFrequency, bool useFahrenheit) {
-  logger.addLog("Saving settings...");
-
   StaticJsonDocument<1024> doc;
 
   JsonArray modes = doc.createNestedArray("modes");
@@ -42,26 +38,17 @@ void ConfigManager::saveSettings(int updateFrequency, bool useFahrenheit) {
 
   File f = LittleFS.open(CONFIG_FILE, "w");
   if (!f) {
-    logger.addLog("ERROR: Failed to open config file for writing");
+    logger.addLog("ERROR: Failed to save config");
     return;
   }
 
-  size_t bytesWritten = serializeJson(doc, f);
+  serializeJson(doc, f);
   f.close();
-
-  logger.addLog("Settings saved (" + String(bytesWritten) + " bytes)");
-
-  // Print what was saved for debugging
-  String jsonStr;
-  serializeJson(doc, jsonStr);
-  logger.addLog("JSON: " + jsonStr);
 }
 
 void ConfigManager::loadSettings(int& updateFrequency, bool& useFahrenheit) {
-  logger.addLog("Loading settings...");
-
   if (!LittleFS.exists(CONFIG_FILE)) {
-    logger.addLog("Config file not found, using defaults");
+    logger.addLog("No config file, using defaults");
     return;
   }
 
@@ -71,9 +58,6 @@ void ConfigManager::loadSettings(int& updateFrequency, bool& useFahrenheit) {
     return;
   }
 
-  size_t fileSize = f.size();
-  logger.addLog("Config file size: " + String(fileSize) + " bytes");
-
   StaticJsonDocument<1024> doc;
   DeserializationError error = deserializeJson(doc, f);
   f.close();
@@ -82,11 +66,6 @@ void ConfigManager::loadSettings(int& updateFrequency, bool& useFahrenheit) {
     logger.addLog("ERROR: Failed to parse config: " + String(error.c_str()));
     return;
   }
-
-  // Print loaded JSON for debugging
-  String jsonStr;
-  serializeJson(doc, jsonStr);
-  logger.addLog("Loaded JSON: " + jsonStr);
 
   // Load relay modes
   if (doc.containsKey("modes")) {
@@ -149,6 +128,4 @@ void ConfigManager::loadSettings(int& updateFrequency, bool& useFahrenheit) {
   if (doc.containsKey("useFahrenheit")) {
     useFahrenheit = doc["useFahrenheit"];
   }
-
-  logger.addLog("Settings loaded successfully");
 }

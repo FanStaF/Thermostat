@@ -100,7 +100,6 @@ void RelayController::setRelayMode(int index, Mode mode) {
 void RelayController::setRelayType(int index, RelayType type) {
   if (index >= 0 && index < 4) {
     relayTypes[index] = type;
-    logger.addLog("Relay " + String(index+1) + " type set to " + typeToString(type));
   }
 }
 
