@@ -373,6 +373,10 @@ void WebInterface::handleLogsJson() {
 
   const auto& logs = logger.getLogs();
 
+  // Add CORS headers for cross-origin access from dashboard
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET");
+
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "application/json", "");
   server.sendContent("{\"total\":");
