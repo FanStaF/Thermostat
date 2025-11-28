@@ -301,6 +301,24 @@
     </div>
 @endif
 
+@if($device->ip_address)
+<div class="card">
+    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>Device Logs</span>
+        <div>
+            <label style="font-size: 12px; margin-right: 10px;">
+                <input type="checkbox" id="filterLogs" checked onchange="loadDeviceLogs()"> Filter repetitive
+            </label>
+            <button class="btn" style="padding: 4px 10px; font-size: 12px;" onclick="loadDeviceLogs()">Refresh</button>
+            <a href="http://{{ $device->ip_address }}/logs" target="_blank" class="btn" style="padding: 4px 10px; font-size: 12px; text-decoration: none;">Open Device UI</a>
+        </div>
+    </div>
+    <div id="deviceLogsContainer" style="max-height: 400px; overflow-y: auto; background: #1e1e1e; border-radius: 5px; padding: 10px; font-family: monospace; font-size: 12px;">
+        <p style="color: #666;">Loading logs...</p>
+    </div>
+</div>
+@endif
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
@@ -562,7 +580,7 @@
         const card = document.querySelector(`[data-relay-number="${relayNumber}"]`);
         const relayId = card.dataset.relayId;
 
-        // Update in database first
+        // Update in database
         fetch(`/devices/${deviceId}/relays/${relayId}`, {
             method: 'PATCH',
             headers: {
@@ -573,10 +591,35 @@
         })
         .then(response => response.json())
         .then(data => {
-            // Then send command to device
-            sendCommand('set_relay_type', {
-                relay_number: relayNumber,
-                relay_type: relayType
+            showMessage('Relay type saved. Sending command to device...');
+
+            // Send command to device (don't block on this)
+            fetch(`/devices/${deviceId}/commands`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                },
+                body: JSON.stringify({
+                    type: 'set_relay_type',
+                    params: {
+                        relay_number: relayNumber,
+                        relay_type: relayType
+                    }
+                })
+            })
+            .then(cmdResponse => {
+                if (cmdResponse.ok) {
+                    showMessage('Relay type updated! Device will apply changes shortly.');
+                } else {
+                    // Log but don't show error - DB was updated
+                    console.warn('Command queue failed, but database was updated');
+                    showMessage('Relay type saved to database. Device command may be delayed.');
+                }
+            })
+            .catch(cmdError => {
+                console.warn('Command send failed:', cmdError);
+                showMessage('Relay type saved to database. Device command may be delayed.');
             });
         })
         .catch(error => {
@@ -731,5 +774,63 @@
     function changeRange(range) {
         window.location.href = `{{ route('dashboard.show', $device->id) }}?range=${range}`;
     }
+
+    @if($device->ip_address)
+    const deviceIp = '{{ $device->ip_address }}';
+
+    async function loadDeviceLogs() {
+        const container = document.getElementById('deviceLogsContainer');
+        const filterChecked = document.getElementById('filterLogs').checked;
+
+        container.innerHTML = '<p style="color: #666;">Loading logs...</p>';
+
+        try {
+            const url = `http://${deviceIp}/logs.json?limit=200${filterChecked ? '' : '&all=1'}`;
+            const response = await fetch(url, {
+                mode: 'cors',
+                timeout: 5000
+            });
+
+            if (!response.ok) {
+                throw new Error('Device not reachable');
+            }
+
+            const data = await response.json();
+
+            if (data.logs && data.logs.length > 0) {
+                let html = `<div style="color: #888; margin-bottom: 10px;">Total: ${data.total} logs (showing ${data.logs.length})</div>`;
+
+                data.logs.forEach(log => {
+                    let color = '#d4d4d4';
+                    let borderColor = 'transparent';
+
+                    if (log.msg.includes('Relay')) {
+                        borderColor = '#4CAF50';
+                    } else if (log.msg.includes('ERROR') || log.msg.includes('Error') || log.msg.includes('failed')) {
+                        borderColor = '#f44336';
+                        color = '#f44336';
+                    } else if (log.msg.includes('command') || log.msg.includes('Command')) {
+                        borderColor = '#2196F3';
+                    }
+
+                    html += `<div style="background: #252526; padding: 6px 8px; margin: 2px 0; border-radius: 3px; border-left: 3px solid ${borderColor}; color: ${color};">`;
+                    html += `<span style="color: #888;">[${log.ts}s]</span> ${log.msg}`;
+                    html += `</div>`;
+                });
+
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = '<p style="color: #666;">No logs available.</p>';
+            }
+        } catch (error) {
+            container.innerHTML = `<p style="color: #f44336;">Could not load device logs: ${error.message}</p>
+                <p style="color: #888; font-size: 11px;">Make sure you're on the same network as the device, or the device may be offline.</p>
+                <p style="color: #888; font-size: 11px;">Device IP: ${deviceIp}</p>`;
+        }
+    }
+
+    // Load logs on page load
+    loadDeviceLogs();
+    @endif
 </script>
 @endsection

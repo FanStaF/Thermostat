@@ -9,7 +9,7 @@ static const int RELAY_PINS[4] = { D1, D5, D6, D7 };
 
 // ---- System Configuration ----
 constexpr int DEFAULT_UPDATE_FREQUENCY = 5; // seconds
-constexpr size_t MAX_SYSTEM_LOGS = 100;
+constexpr size_t MAX_SYSTEM_LOGS = 500;
 
 // ---- API Configuration ----
 // API_URL is defined in Credentials.h

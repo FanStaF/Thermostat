@@ -22,6 +22,7 @@ void WebInterface::begin() {
   server.on("/setunit", [this]() { this->handleSetUnit(); });
   server.on("/cleardata", [this]() { this->handleClearData(); });
   server.on("/logs", [this]() { this->handleLogs(); });
+  server.on("/logs.json", [this]() { this->handleLogsJson(); });
   server.on("/data", [this]() { this->handleData(); });
 
   server.begin();
@@ -264,21 +265,162 @@ void WebInterface::handleSetUnit() {
 }
 
 void WebInterface::handleLogs() {
+  // Check for filter and page parameters
+  bool filterRepetitive = !server.hasArg("all");
+  int page = server.hasArg("page") ? server.arg("page").toInt() : 1;
+  if (page < 1) page = 1;
+  const int logsPerPage = 100;
+
   String html = "<!doctype html><html><head><meta charset='utf-8'>";
-  html += "<meta http-equiv='refresh' content='5'><title>System Logs</title>";
+  html += "<meta http-equiv='refresh' content='10'><title>System Logs</title>";
   html += "<style>body{font-family:monospace;background:#1e1e1e;color:#d4d4d4;padding:20px;}";
   html += ".log{background:#252526;padding:8px;margin:3px 0;border-radius:3px;font-size:13px;}";
-  html += "h2{color:#4CAF50;}</style></head><body>";
-  html += "<h2>System Logs (Last " + String(logger.getLogCount()) + ")</h2>";
-  html += "<a href='/' style='color:#2196F3;'>Back to Main</a><br><br>";
+  html += ".log.relay{border-left:3px solid #4CAF50;}";
+  html += ".log.error{border-left:3px solid #f44336;}";
+  html += ".log.cmd{border-left:3px solid #2196F3;}";
+  html += "h2{color:#4CAF50;}";
+  html += ".nav{margin:10px 0;}.nav a{color:#2196F3;margin-right:15px;}";
+  html += ".filter{margin:10px 0;padding:10px;background:#252526;border-radius:5px;}";
+  html += "</style></head><body>";
+  html += "<h2>System Logs (" + String(logger.getLogCount()) + " total)</h2>";
+  html += "<a href='/' style='color:#2196F3;'>Back to Main</a>";
+
+  // Filter toggle
+  html += "<div class='filter'>";
+  if (filterRepetitive) {
+    html += "Showing filtered logs (hiding repetitive heartbeats/posts) - ";
+    html += "<a href='/logs?all=1'>Show All</a>";
+  } else {
+    html += "Showing all logs - ";
+    html += "<a href='/logs'>Filter Repetitive</a>";
+  }
+  html += "</div>";
 
   const auto& logs = logger.getLogs();
+
+  // Build filtered list
+  std::vector<int> filteredIndices;
+  int lastHeartbeat = -1;
+  int lastTempPost = -1;
+  int lastCommandPoll = -1;
+
   for (int i = logs.size() - 1; i >= 0; i--) {
-    html += "<div class='log'>[" + String(logs[i].timestamp / 1000) + "s] " + logs[i].message + "</div>";
+    const String& msg = logs[i].message;
+    bool isRepetitive = false;
+
+    if (filterRepetitive) {
+      // Check for repetitive messages - only show the most recent of each type
+      if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0) {
+        if (lastHeartbeat >= 0) isRepetitive = true;
+        else lastHeartbeat = i;
+      } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0) {
+        if (lastTempPost >= 0) isRepetitive = true;
+        else lastTempPost = i;
+      } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0) {
+        if (lastCommandPoll >= 0) isRepetitive = true;
+        else lastCommandPoll = i;
+      }
+    }
+
+    if (!isRepetitive) {
+      filteredIndices.push_back(i);
+    }
+  }
+
+  // Pagination
+  int totalFiltered = filteredIndices.size();
+  int totalPages = (totalFiltered + logsPerPage - 1) / logsPerPage;
+  if (page > totalPages) page = totalPages;
+  int startIdx = (page - 1) * logsPerPage;
+  int endIdx = min(startIdx + logsPerPage, totalFiltered);
+
+  // Page navigation
+  html += "<div class='nav'>";
+  if (page > 1) {
+    html += "<a href='/logs?page=" + String(page - 1) + (filterRepetitive ? "" : "&all=1") + "'>&lt; Prev</a>";
+  }
+  html += "Page " + String(page) + " of " + String(totalPages) + " (" + String(totalFiltered) + " entries)";
+  if (page < totalPages) {
+    html += "<a href='/logs?page=" + String(page + 1) + (filterRepetitive ? "" : "&all=1") + "'>Next &gt;</a>";
+  }
+  html += "</div>";
+
+  // Display logs
+  for (int i = startIdx; i < endIdx; i++) {
+    int logIdx = filteredIndices[i];
+    const String& msg = logs[logIdx].message;
+
+    // Color-code log types
+    String logClass = "log";
+    if (msg.indexOf("Relay") >= 0) logClass += " relay";
+    else if (msg.indexOf("ERROR") >= 0 || msg.indexOf("Error") >= 0 || msg.indexOf("failed") >= 0) logClass += " error";
+    else if (msg.indexOf("command") >= 0 || msg.indexOf("Command") >= 0) logClass += " cmd";
+
+    html += "<div class='" + logClass + "'>[" + String(logs[logIdx].timestamp / 1000) + "s] " + msg + "</div>";
   }
 
   html += "</body></html>";
   server.send(200, "text/html", html);
+}
+
+void WebInterface::handleLogsJson() {
+  // Return logs as JSON for remote access
+  int limit = server.hasArg("limit") ? server.arg("limit").toInt() : 100;
+  if (limit < 1) limit = 1;
+  if (limit > 500) limit = 500;
+
+  bool filterRepetitive = !server.hasArg("all");
+
+  const auto& logs = logger.getLogs();
+
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+  server.sendContent("{\"total\":");
+  server.sendContent(String(logs.size()));
+  server.sendContent(",\"logs\":[");
+
+  int lastHeartbeat = -1;
+  int lastTempPost = -1;
+  int lastCommandPoll = -1;
+  int count = 0;
+  bool first = true;
+
+  for (int i = logs.size() - 1; i >= 0 && count < limit; i--) {
+    const String& msg = logs[i].message;
+    bool isRepetitive = false;
+
+    if (filterRepetitive) {
+      if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0) {
+        if (lastHeartbeat >= 0) isRepetitive = true;
+        else lastHeartbeat = i;
+      } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0) {
+        if (lastTempPost >= 0) isRepetitive = true;
+        else lastTempPost = i;
+      } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0) {
+        if (lastCommandPoll >= 0) isRepetitive = true;
+        else lastCommandPoll = i;
+      }
+    }
+
+    if (!isRepetitive) {
+      if (!first) server.sendContent(",");
+      first = false;
+
+      // Escape JSON string
+      String escaped = logs[i].message;
+      escaped.replace("\\", "\\\\");
+      escaped.replace("\"", "\\\"");
+
+      server.sendContent("{\"ts\":");
+      server.sendContent(String(logs[i].timestamp / 1000));
+      server.sendContent(",\"msg\":\"");
+      server.sendContent(escaped);
+      server.sendContent("\"}");
+      count++;
+    }
+  }
+
+  server.sendContent("]}");
 }
 
 void WebInterface::handleData() {

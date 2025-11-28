@@ -38,6 +38,7 @@ private:
   void handleClearData();
   void handleSetUnit();
   void handleLogs();
+  void handleLogsJson();
   void handleData();
 
 };
