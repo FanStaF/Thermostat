@@ -133,20 +133,26 @@ void WebInterface::handleRoot() {
 }
 
 void WebInterface::handleStatus() {
-  String json = "{\"temp\":" + String(tempManager.getCurrentTemp(), 1);
-  json += ",\"freq\":" + String(updateFrequency);
-  json += ",\"useFahrenheit\":" + String(useFahrenheit ? "true" : "false");
-  json += ",\"relays\":[";
+  // Build response via ArduinoJson + a single reserved String buffer to
+  // avoid the heap-fragmenting String concat that the /status endpoint hits
+  // every 2 seconds from the browser.
+  JsonDocument doc;
+  doc["temp"] = tempManager.getCurrentTemp();
+  doc["freq"] = updateFrequency;
+  doc["useFahrenheit"] = useFahrenheit;
+  JsonArray relays = doc["relays"].to<JsonArray>();
   for (int i = 0; i < 4; i++) {
-    if (i > 0) json += ",";
-    json += "{\"state\":" + String(relayController.getRelayState(i) ? "true" : "false");
-    json += ",\"mode\":\"" + RelayController::modeToString(relayController.getRelayMode(i)) + "\"";
-    json += ",\"type\":\"" + RelayController::typeToString(relayController.getRelayType(i)) + "\"";
-    json += ",\"tempOn\":" + String(relayController.getTempOn(i), 1);
-    json += ",\"tempOff\":" + String(relayController.getTempOff(i), 1) + "}";
+    JsonObject r = relays.add<JsonObject>();
+    r["state"]   = relayController.getRelayState(i);
+    r["mode"]    = RelayController::modeToString(relayController.getRelayMode(i));
+    r["type"]    = RelayController::typeToString(relayController.getRelayType(i));
+    r["tempOn"]  = relayController.getTempOn(i);
+    r["tempOff"] = relayController.getTempOff(i);
   }
-  json += "]}";
-  server.send(200, "application/json", json);
+  String out;
+  out.reserve(measureJson(doc) + 1);
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
 }
 
 void WebInterface::handleSetMode() {
@@ -160,18 +166,7 @@ void WebInterface::handleSetMode() {
       logger.addLog("Relay " + String(relay + 1) + " mode: " + mode);
       relayController.applyRelayLogic(tempManager.getCurrentTemp());
       configManager.saveSettings(updateFrequency, useFahrenheit);
-
-      // Send updated relay state to API
-      if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
-        apiClient.sendRelayState(
-          relay + 1,
-          relayController.getRelayState(relay),
-          RelayController::modeToString(relayController.getRelayMode(relay)),
-          relayController.getTempOn(relay),
-          relayController.getTempOff(relay),
-          "Relay " + String(relay + 1)
-        );
-      }
+      apiClient.markRelayDirty(relay);
     }
   }
   handleStatus();
@@ -188,18 +183,7 @@ void WebInterface::handleSetType() {
       else if (type == "MANUAL_ONLY") relayController.setRelayType(relay, MANUAL_ONLY);
       relayController.applyRelayLogic(tempManager.getCurrentTemp());
       configManager.saveSettings(updateFrequency, useFahrenheit);
-
-      // Send updated relay state to API
-      if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
-        apiClient.sendRelayState(
-          relay + 1,
-          relayController.getRelayState(relay),
-          RelayController::modeToString(relayController.getRelayMode(relay)),
-          relayController.getTempOn(relay),
-          relayController.getTempOff(relay),
-          "Relay " + String(relay + 1)
-        );
-      }
+      apiClient.markRelayDirty(relay);
     }
   }
   handleStatus();
@@ -216,18 +200,7 @@ void WebInterface::handleSetThresholds() {
                     String(tempOn, 1) + "C, OFF=" + String(tempOff, 1) + "C");
       relayController.applyRelayLogic(tempManager.getCurrentTemp());
       configManager.saveSettings(updateFrequency, useFahrenheit);
-
-      // Send updated relay state to API
-      if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
-        apiClient.sendRelayState(
-          relay + 1,
-          relayController.getRelayState(relay),
-          RelayController::modeToString(relayController.getRelayMode(relay)),
-          relayController.getTempOn(relay),
-          relayController.getTempOff(relay),
-          "Relay " + String(relay + 1)
-        );
-      }
+      apiClient.markRelayDirty(relay);
     }
   }
   handleStatus();
@@ -265,40 +238,14 @@ void WebInterface::handleSetUnit() {
 }
 
 void WebInterface::handleLogs() {
-  // Check for filter and page parameters
   bool filterRepetitive = !server.hasArg("all");
   int page = server.hasArg("page") ? server.arg("page").toInt() : 1;
   if (page < 1) page = 1;
   const int logsPerPage = 100;
 
-  String html = "<!doctype html><html><head><meta charset='utf-8'>";
-  html += "<meta http-equiv='refresh' content='10'><title>System Logs</title>";
-  html += "<style>body{font-family:monospace;background:#1e1e1e;color:#d4d4d4;padding:20px;}";
-  html += ".log{background:#252526;padding:8px;margin:3px 0;border-radius:3px;font-size:13px;}";
-  html += ".log.relay{border-left:3px solid #4CAF50;}";
-  html += ".log.error{border-left:3px solid #f44336;}";
-  html += ".log.cmd{border-left:3px solid #2196F3;}";
-  html += "h2{color:#4CAF50;}";
-  html += ".nav{margin:10px 0;}.nav a{color:#2196F3;margin-right:15px;}";
-  html += ".filter{margin:10px 0;padding:10px;background:#252526;border-radius:5px;}";
-  html += "</style></head><body>";
-  html += "<h2>System Logs (" + String(logger.getLogCount()) + " total)</h2>";
-  html += "<a href='/' style='color:#2196F3;'>Back to Main</a>";
-
-  // Filter toggle
-  html += "<div class='filter'>";
-  if (filterRepetitive) {
-    html += "Showing filtered logs (hiding repetitive heartbeats/posts) - ";
-    html += "<a href='/logs?all=1'>Show All</a>";
-  } else {
-    html += "Showing all logs - ";
-    html += "<a href='/logs'>Filter Repetitive</a>";
-  }
-  html += "</div>";
-
   const auto& logs = logger.getLogs();
 
-  // Build filtered list
+  // Build filtered index list (one entry = one int, far cheaper than building HTML eagerly)
   std::vector<int> filteredIndices;
   int lastHeartbeat = -1;
   int lastTempPost = -1;
@@ -309,7 +256,6 @@ void WebInterface::handleLogs() {
     bool isRepetitive = false;
 
     if (filterRepetitive) {
-      // Check for repetitive messages - only show the most recent of each type
       if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0 || msg.indexOf("/heartbeat") >= 0) {
         if (lastHeartbeat >= 0) isRepetitive = true;
         else lastHeartbeat = i;
@@ -327,40 +273,63 @@ void WebInterface::handleLogs() {
     }
   }
 
-  // Pagination
   int totalFiltered = filteredIndices.size();
   int totalPages = (totalFiltered + logsPerPage - 1) / logsPerPage;
+  if (totalPages == 0) totalPages = 1;
   if (page > totalPages) page = totalPages;
   int startIdx = (page - 1) * logsPerPage;
   int endIdx = min(startIdx + logsPerPage, totalFiltered);
 
-  // Page navigation
-  html += "<div class='nav'>";
-  if (page > 1) {
-    html += "<a href='/logs?page=" + String(page - 1) + (filterRepetitive ? "" : "&all=1") + "'>&lt; Prev</a>";
-  }
-  html += "Page " + String(page) + " of " + String(totalPages) + " (" + String(totalFiltered) + " entries)";
-  if (page < totalPages) {
-    html += "<a href='/logs?page=" + String(page + 1) + (filterRepetitive ? "" : "&all=1") + "'>Next &gt;</a>";
-  }
-  html += "</div>";
+  // Stream the response so we never hold the full page in RAM at once.
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/html", "");
 
-  // Display logs
+  server.sendContent_P(PSTR(
+    "<!doctype html><html><head><meta charset='utf-8'>"
+    "<meta http-equiv='refresh' content='10'><title>System Logs</title>"
+    "<style>body{font-family:monospace;background:#1e1e1e;color:#d4d4d4;padding:20px;}"
+    ".log{background:#252526;padding:8px;margin:3px 0;border-radius:3px;font-size:13px;}"
+    ".log.relay{border-left:3px solid #4CAF50;}"
+    ".log.error{border-left:3px solid #f44336;}"
+    ".log.cmd{border-left:3px solid #2196F3;}"
+    "h2{color:#4CAF50;}"
+    ".nav{margin:10px 0;}.nav a{color:#2196F3;margin-right:15px;}"
+    ".filter{margin:10px 0;padding:10px;background:#252526;border-radius:5px;}"
+    "</style></head><body>"));
+
+  server.sendContent("<h2>System Logs (" + String(logger.getLogCount()) + " total)</h2>");
+  server.sendContent_P(PSTR("<a href='/' style='color:#2196F3;'>Back to Main</a><div class='filter'>"));
+  if (filterRepetitive) {
+    server.sendContent_P(PSTR("Showing filtered logs (hiding repetitive heartbeats/posts) - <a href='/logs?all=1'>Show All</a>"));
+  } else {
+    server.sendContent_P(PSTR("Showing all logs - <a href='/logs'>Filter Repetitive</a>"));
+  }
+  server.sendContent_P(PSTR("</div><div class='nav'>"));
+
+  if (page > 1) {
+    server.sendContent("<a href='/logs?page=" + String(page - 1) + (filterRepetitive ? "" : "&all=1") + "'>&lt; Prev</a>");
+  }
+  server.sendContent("Page " + String(page) + " of " + String(totalPages) + " (" + String(totalFiltered) + " entries)");
+  if (page < totalPages) {
+    server.sendContent("<a href='/logs?page=" + String(page + 1) + (filterRepetitive ? "" : "&all=1") + "'>Next &gt;</a>");
+  }
+  server.sendContent_P(PSTR("</div>"));
+
   for (int i = startIdx; i < endIdx; i++) {
     int logIdx = filteredIndices[i];
     const String& msg = logs[logIdx].message;
 
-    // Color-code log types
     String logClass = "log";
     if (msg.indexOf("Relay") >= 0) logClass += " relay";
     else if (msg.indexOf("ERROR") >= 0 || msg.indexOf("Error") >= 0 || msg.indexOf("failed") >= 0) logClass += " error";
     else if (msg.indexOf("command") >= 0 || msg.indexOf("Command") >= 0) logClass += " cmd";
 
-    html += "<div class='" + logClass + "'>[" + String(logs[logIdx].timestamp / 1000) + "s] " + msg + "</div>";
+    server.sendContent("<div class='" + logClass + "'>[" + String(logs[logIdx].timestamp / 1000) + "s] " + msg + "</div>");
+    if (((i - startIdx) & 0x0F) == 0) yield(); // feed watchdog every 16 entries
   }
 
-  html += "</body></html>";
-  server.send(200, "text/html", html);
+  server.sendContent_P(PSTR("</body></html>"));
+  server.sendContent("");
 }
 
 void WebInterface::handleLogsJson() {

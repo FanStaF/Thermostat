@@ -33,6 +33,20 @@ public:
   Command* getPendingCommands() { return pendingCommands; }
   int getPendingCommandCount() const { return pendingCommandCount; }
 
+  // Drain-one-per-loop interface: web handlers and the loop tick mark state
+  // dirty; the main loop drains a single sync per iteration so the web server
+  // is never blocked behind a stack of HTTP calls.
+  void markRelayDirty(int relayIdx);
+  void clearRelayDirty(int relayIdx);
+  int  nextDirtyRelay() const;             // 0..3 of next dirty relay, or -1
+  void markTempDirty();
+  void clearTempDirty();
+  bool isTempDirty() const { return tempDirty; }
+
+  bool hasPendingCommands() const { return nextCommandIdx < pendingCommandCount; }
+  Command* peekNextCommand();
+  void popNextCommand();
+
 private:
   String apiUrl;
   int deviceId;
@@ -44,6 +58,10 @@ private:
   static const int MAX_PENDING_COMMANDS = 10;
   Command pendingCommands[MAX_PENDING_COMMANDS];
   int pendingCommandCount;
+  int nextCommandIdx;
+
+  bool relayDirty[4];
+  bool tempDirty;
 
   bool makePostRequest(const String& endpoint, const String& jsonPayload, String& response);
   bool makeGetRequest(const String& endpoint, String& response);

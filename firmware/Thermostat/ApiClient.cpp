@@ -1,22 +1,22 @@
 #include "ApiClient.h"
+#include "Config.h"
 #include "SystemLogger.h"
 #include "Credentials.h"
 #include <LittleFS.h>
 
 extern SystemLogger logger;
 
-ApiClient::ApiClient(const String& apiUrl) : apiUrl(apiUrl), deviceId(-1), authToken(""), pendingCommandCount(0) {
-  // Detect if using HTTPS
+ApiClient::ApiClient(const String& apiUrl)
+  : apiUrl(apiUrl), deviceId(-1), authToken(""),
+    pendingCommandCount(0), nextCommandIdx(0), tempDirty(false) {
   useHttps = apiUrl.startsWith("https://");
+  for (int i = 0; i < 4; i++) relayDirty[i] = false;
 }
 
 void ApiClient::begin() {
-  // Configure HTTPS client if needed
   if (useHttps) {
-    // Configure WiFiClientSecure to not verify SSL certificates
     wifiClientSecure.setInsecure();
-    // Reduce buffer size to save memory (ESP8266 has limited RAM)
-    wifiClientSecure.setBufferSizes(512, 512);
+    wifiClientSecure.setBufferSizes(TLS_RX_BUFFER, TLS_TX_BUFFER);
   }
 
   loadToken();
@@ -70,7 +70,7 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
   HTTPClient http;
   String url = apiUrl + "/api/devices/register";
 
-  http.setTimeout(15000);
+  http.setTimeout(HTTP_REQUEST_TIMEOUT);
 
   bool beginSuccess = useHttps ? http.begin(wifiClientSecure, url) : http.begin(wifiClient, url);
   if (!beginSuccess) {
@@ -191,6 +191,7 @@ bool ApiClient::pollCommands() {
     if (!error && doc.containsKey("commands")) {
       JsonArray commands = doc["commands"].as<JsonArray>();
       pendingCommandCount = 0;
+      nextCommandIdx = 0;
 
       for (JsonObject cmd : commands) {
         if (pendingCommandCount >= MAX_PENDING_COMMANDS) break;
@@ -264,7 +265,7 @@ bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayloa
   }
 
   // Set timeout and follow redirects
-  http.setTimeout(15000);
+  http.setTimeout(HTTP_REQUEST_TIMEOUT);
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 
   http.addHeader("Content-Type", "application/json");
@@ -306,7 +307,7 @@ bool ApiClient::makeGetRequest(const String& endpoint, String& response) {
   }
 
   // Set timeout and follow redirects
-  http.setTimeout(15000);
+  http.setTimeout(HTTP_REQUEST_TIMEOUT);
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 
   http.addHeader("Accept", "application/json");
@@ -345,7 +346,7 @@ bool ApiClient::makePutRequest(const String& endpoint, const String& jsonPayload
   }
 
   // Set timeout and follow redirects
-  http.setTimeout(15000);
+  http.setTimeout(HTTP_REQUEST_TIMEOUT);
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
 
   http.addHeader("Content-Type", "application/json");
@@ -365,4 +366,48 @@ bool ApiClient::makePutRequest(const String& endpoint, const String& jsonPayload
 
   http.end();
   return false;
+}
+
+// ---- Dirty-flag drain interface ----
+
+void ApiClient::markRelayDirty(int relayIdx) {
+  if (relayIdx >= 0 && relayIdx < 4) relayDirty[relayIdx] = true;
+}
+
+void ApiClient::clearRelayDirty(int relayIdx) {
+  if (relayIdx >= 0 && relayIdx < 4) relayDirty[relayIdx] = false;
+}
+
+int ApiClient::nextDirtyRelay() const {
+  for (int i = 0; i < 4; i++) {
+    if (relayDirty[i]) return i;
+  }
+  return -1;
+}
+
+void ApiClient::markTempDirty() {
+  tempDirty = true;
+}
+
+void ApiClient::clearTempDirty() {
+  tempDirty = false;
+}
+
+ApiClient::Command* ApiClient::peekNextCommand() {
+  if (nextCommandIdx < pendingCommandCount) {
+    return &pendingCommands[nextCommandIdx];
+  }
+  return nullptr;
+}
+
+void ApiClient::popNextCommand() {
+  if (nextCommandIdx < pendingCommandCount) {
+    nextCommandIdx++;
+  }
+  // Reset to clean state when fully drained so the next pollCommands
+  // starts from a known-empty queue.
+  if (nextCommandIdx >= pendingCommandCount) {
+    nextCommandIdx = 0;
+    pendingCommandCount = 0;
+  }
 }

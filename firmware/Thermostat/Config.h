@@ -13,9 +13,14 @@ constexpr size_t MAX_SYSTEM_LOGS = 500;
 
 // ---- API Configuration ----
 // API_URL is defined in Credentials.h
-#define FIRMWARE_VERSION "2.0.0"
+#define FIRMWARE_VERSION "2.1.0"
 constexpr int API_HEARTBEAT_INTERVAL = 60000;  // ms (1 minute)
 constexpr int API_COMMAND_POLL_INTERVAL = 30000;  // ms (30 seconds)
+constexpr int HTTP_REQUEST_TIMEOUT = 5000;     // ms — kept short so blocking calls don't starve the web server
+constexpr int TLS_RX_BUFFER = 1024;            // bytes — TLS fragment input buffer
+constexpr int TLS_TX_BUFFER = 4096;            // bytes — TLS output buffer (handshake needs >2K)
+constexpr unsigned long WIFI_RECONNECT_INTERVAL = 30000; // ms between reconnect attempts
+constexpr unsigned long HEAP_LOG_INTERVAL = 300000;      // ms (5 min) periodic heap snapshot
 
 // ---- File Paths ----
 #define CONFIG_FILE "/config.json"

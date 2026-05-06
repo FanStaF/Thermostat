@@ -77,8 +77,32 @@ void setup() {
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   logger.addLog("NTP time sync started");
 
-  // Initialize API client and register device
+  // Get initial temperature and apply relay logic BEFORE the web server
+  // starts so /status returns sensible values immediately.
+  float initialTemp;
+  if (tempManager.readTemperatureWithValidation(initialTemp)) {
+    tempManager.setCurrentTemp(initialTemp);
+    logger.addLog("Initial temp: " + String(initialTemp, 1) + "C");
+  } else {
+    tempManager.setCurrentTemp(20.0); // Safe default if sensor not working
+    logger.addLog("WARNING: Sensor read failed, using default 20.0C");
+  }
+
+  logger.addLog("Applying relay settings...");
+  for (int i = 0; i < 4; i++) {
+    String msg = "R" + String(i + 1) + ": " + RelayController::modeToString(relayController.getRelayMode(i));
+    msg += " (ON=" + String(relayController.getTempOn(i), 1) + "C, OFF=" + String(relayController.getTempOff(i), 1) + "C)";
+    logger.addLog(msg);
+  }
+  relayController.applyRelayLogic(tempManager.getCurrentTemp());
+
+  // Start the local web server BEFORE talking to the backend so the device is
+  // reachable on the LAN even if the backend is slow or down.
   apiClient.begin();
+  webInterface.begin();
+
+  // Register with backend (one short blocking call). Even if this fails the
+  // local UI keeps working; the loop will retry sync via dirty flags.
   if (WiFi.status() == WL_CONNECTED) {
     String hostname = WiFi.getHostname();
     String macAddress = WiFi.macAddress();
@@ -91,45 +115,132 @@ void setup() {
     }
   }
 
-  // Setup web server
-  webInterface.begin();
-
-  // Get initial temperature with validation
-  float initialTemp;
-  if (tempManager.readTemperatureWithValidation(initialTemp)) {
-    tempManager.setCurrentTemp(initialTemp);
-    logger.addLog("Initial temp: " + String(initialTemp, 1) + "C");
-  } else {
-    tempManager.setCurrentTemp(20.0); // Safe default if sensor not working
-    logger.addLog("WARNING: Sensor read failed, using default 20.0C");
-  }
-
-  // Apply loaded settings to relays
-  logger.addLog("Applying relay settings...");
+  // Queue initial relay state sync — drained one per loop iteration so we
+  // never block the web server with a startup burst of HTTP calls.
   for (int i = 0; i < 4; i++) {
-    String msg = "R" + String(i + 1) + ": " + RelayController::modeToString(relayController.getRelayMode(i));
-    msg += " (ON=" + String(relayController.getTempOn(i), 1) + "C, OFF=" + String(relayController.getTempOff(i), 1) + "C)";
-    logger.addLog(msg);
-  }
-  relayController.applyRelayLogic(tempManager.getCurrentTemp());
-
-  // Send initial relay states to Laravel API
-  if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
-    logger.addLog("Sending initial relay states...");
-    for (int i = 0; i < 4; i++) {
-      apiClient.sendRelayState(
-        i + 1,
-        relayController.getRelayState(i),
-        RelayController::modeToString(relayController.getRelayMode(i)),
-        relayController.getTempOn(i),
-        relayController.getTempOff(i),
-        "Relay " + String(i + 1)
-      );
-    }
+    apiClient.markRelayDirty(i);
   }
 
   logger.addLog("=== SETUP COMPLETE ===");
   logger.addLog("Web: http://" + WiFi.localIP().toString());
+}
+
+// Process a single backend command. The caller pops it from the queue after
+// this returns; for the "restart" case we drain the rest of the queue here.
+static void processCommand(ApiClient::Command& cmd) {
+  logger.addLog("Processing command: " + cmd.type);
+  apiClient.updateCommandStatus(cmd.id, "acknowledged");
+
+  bool success = false;
+  String result = "";
+
+  if (cmd.type == "set_relay_mode") {
+    JsonDocument paramsDoc;
+    DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+    if (!error) {
+      int relayNum = paramsDoc["relay_number"];
+      String mode = paramsDoc["mode"].as<String>();
+      if (relayNum >= 1 && relayNum <= 4) {
+        Mode newMode = Mode::AUTO;
+        if (mode == "MANUAL_ON") newMode = Mode::MANUAL_ON;
+        else if (mode == "MANUAL_OFF") newMode = Mode::MANUAL_OFF;
+        relayController.setRelayMode(relayNum - 1, newMode);
+        relayController.applyRelayLogic(tempManager.getCurrentTemp());
+        configManager.saveSettings(updateFrequency, useFahrenheit);
+        apiClient.markRelayDirty(relayNum - 1);
+        success = true;
+        result = "Relay " + String(relayNum) + " mode set to " + mode;
+        logger.addLog(result);
+      }
+    }
+  }
+  else if (cmd.type == "set_thresholds") {
+    JsonDocument paramsDoc;
+    DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+    if (!error) {
+      int relayNum = paramsDoc["relay_number"];
+      float tempOn = paramsDoc["temp_on"];
+      float tempOff = paramsDoc["temp_off"];
+      if (relayNum >= 1 && relayNum <= 4) {
+        relayController.setTempThresholds(relayNum - 1, tempOn, tempOff);
+        relayController.applyRelayLogic(tempManager.getCurrentTemp());
+        configManager.saveSettings(updateFrequency, useFahrenheit);
+        apiClient.markRelayDirty(relayNum - 1);
+        success = true;
+        result = "Relay " + String(relayNum) + " thresholds updated";
+        logger.addLog(result);
+      }
+    }
+  }
+  else if (cmd.type == "set_relay_type") {
+    JsonDocument paramsDoc;
+    DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+    if (!error) {
+      int relayNum = paramsDoc["relay_number"];
+      String type = paramsDoc["relay_type"].as<String>();
+      if (relayNum >= 1 && relayNum <= 4) {
+        RelayType newType = RelayType::HEATING;
+        if (type == "COOLING") newType = RelayType::COOLING;
+        else if (type == "GENERIC") newType = RelayType::GENERIC;
+        else if (type == "MANUAL_ONLY") newType = RelayType::MANUAL_ONLY;
+        relayController.setRelayType(relayNum - 1, newType);
+        relayController.applyRelayLogic(tempManager.getCurrentTemp());
+        configManager.saveSettings(updateFrequency, useFahrenheit);
+        apiClient.markRelayDirty(relayNum - 1);
+        success = true;
+        result = "Relay " + String(relayNum) + " type set to " + type;
+        logger.addLog(result);
+      }
+    }
+  }
+  else if (cmd.type == "set_frequency") {
+    JsonDocument paramsDoc;
+    DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+    if (!error) {
+      int freq = paramsDoc["frequency"];
+      if (freq >= 1 && freq <= 60) {
+        updateFrequency = freq;
+        configManager.saveSettings(updateFrequency, useFahrenheit);
+        success = true;
+        result = "Update frequency set to " + String(freq) + "s";
+        logger.addLog(result);
+      }
+    }
+  }
+  else if (cmd.type == "set_unit") {
+    JsonDocument paramsDoc;
+    DeserializationError error = deserializeJson(paramsDoc, cmd.params);
+    if (!error) {
+      bool useFahr = paramsDoc["use_fahrenheit"];
+      useFahrenheit = useFahr;
+      configManager.saveSettings(updateFrequency, useFahrenheit);
+      success = true;
+      result = "Temperature unit set to " + String(useFahr ? "Fahrenheit" : "Celsius");
+      logger.addLog(result);
+    }
+  }
+  else if (cmd.type == "restart") {
+    result = "Restarting device...";
+    logger.addLog(result);
+    apiClient.updateCommandStatus(cmd.id, "completed", result);
+    // Mark any remaining queued commands as failed so the server doesn't think
+    // they're still being executed across the reboot.
+    apiClient.popNextCommand();
+    while (apiClient.hasPendingCommands()) {
+      ApiClient::Command* next = apiClient.peekNextCommand();
+      if (next) apiClient.updateCommandStatus(next->id, "failed", "Device restarting");
+      apiClient.popNextCommand();
+    }
+    delay(1000);
+    ESP.restart();
+    return; // not reached
+  }
+
+  if (success) {
+    apiClient.updateCommandStatus(cmd.id, "completed", result);
+  } else {
+    apiClient.updateCommandStatus(cmd.id, "failed", "Command execution failed");
+  }
 }
 
 void loop() {
@@ -138,28 +249,30 @@ void loop() {
 
   unsigned long now = millis();
 
-  // Read temperature periodically
+  // ---- WiFi reconnect ----
+  static unsigned long lastWifiCheck = 0;
+  if (WiFi.status() != WL_CONNECTED && now - lastWifiCheck >= WIFI_RECONNECT_INTERVAL) {
+    lastWifiCheck = now;
+    logger.addLog("WiFi disconnected, reconnecting...");
+    WiFi.reconnect();
+  }
+
+  // ---- Periodic temperature read ----
   if (now - lastTempUpdate >= (unsigned long)updateFrequency * 1000) {
     lastTempUpdate = now;
 
     float newTemp;
     if (tempManager.readTemperatureWithValidation(newTemp)) {
-      // Valid temperature reading
       tempManager.setCurrentTemp(newTemp);
       Serial.print("Temp: ");
       Serial.print(newTemp, 1);
       Serial.print("C | Relays: ");
 
-      // Track if any relay states changed
-      bool relayStatesChanged = false;
       bool previousStates[4];
-      for (int i = 0; i < 4; i++) {
-        previousStates[i] = relayController.getRelayState(i);
-      }
+      for (int i = 0; i < 4; i++) previousStates[i] = relayController.getRelayState(i);
 
       relayController.applyRelayLogic(newTemp);
 
-      // Print relay states
       for (int i = 0; i < 4; i++) {
         Serial.print(i + 1);
         Serial.print(":");
@@ -167,211 +280,60 @@ void loop() {
         Serial.print("(");
         Serial.print(RelayController::modeToString(relayController.getRelayMode(i)));
         Serial.print(") ");
-
         if (relayController.getRelayState(i) != previousStates[i]) {
-          relayStatesChanged = true;
+          apiClient.markRelayDirty(i);
         }
       }
       Serial.println();
 
       tempManager.logTemperature(newTemp, 0);
-
-      // Send temperature to Laravel API
-      if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
-        apiClient.sendTemperatureReading(newTemp, 0);
-
-        // Send relay states if changed
-        if (relayStatesChanged) {
-          for (int i = 0; i < 4; i++) {
-            apiClient.sendRelayState(
-              i + 1,
-              relayController.getRelayState(i),
-              RelayController::modeToString(relayController.getRelayMode(i)),
-              relayController.getTempOn(i),
-              relayController.getTempOff(i),
-              "Relay " + String(i + 1)
-            );
-          }
-        }
-      }
+      apiClient.markTempDirty();
     } else {
-      // Failed to read valid temperature, keep using last known good value
       logger.addLog("Using last known temp: " + String(tempManager.getCurrentTemp(), 1) + "C");
     }
   }
 
-  // Send heartbeat to API periodically
+  // ---- Drain pending API work, AT MOST ONE blocking call per loop iteration ----
+  // Order: temperature first (most time-sensitive), then any one dirty relay,
+  // then heartbeat, then a single pending command. The web server gets a turn
+  // between each one.
   if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
-    if (now - lastHeartbeat >= API_HEARTBEAT_INTERVAL) {
-      lastHeartbeat = now;
-      apiClient.sendHeartbeat();
-    }
-
-    // Poll for pending commands
-    if (now - lastCommandPoll >= API_COMMAND_POLL_INTERVAL) {
-      lastCommandPoll = now;
-      if (apiClient.pollCommands()) {
-        int commandCount = apiClient.getPendingCommandCount();
-        for (int i = 0; i < commandCount; i++) {
-          ApiClient::Command cmd = apiClient.getPendingCommands()[i];
-          logger.addLog("Processing command: " + cmd.type);
-
-          // Acknowledge command immediately
-          apiClient.updateCommandStatus(cmd.id, "acknowledged");
-
-          // Process command based on type
-          bool success = false;
-          String result = "";
-
-          if (cmd.type == "set_relay_mode") {
-            // Parse JSON params
-            JsonDocument paramsDoc;
-            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
-
-            if (!error) {
-              int relayNum = paramsDoc["relay_number"];
-              String mode = paramsDoc["mode"].as<String>();
-
-              if (relayNum >= 1 && relayNum <= 4) {
-                Mode newMode = Mode::AUTO;
-                if (mode == "MANUAL_ON") newMode = Mode::MANUAL_ON;
-                else if (mode == "MANUAL_OFF") newMode = Mode::MANUAL_OFF;
-
-                relayController.setRelayMode(relayNum - 1, newMode);
-                relayController.applyRelayLogic(tempManager.getCurrentTemp());
-                configManager.saveSettings(updateFrequency, useFahrenheit);
-
-                // Send updated state back to server
-                int relayIdx = relayNum - 1;
-                apiClient.sendRelayState(
-                  relayNum,
-                  relayController.getRelayState(relayIdx),
-                  RelayController::modeToString(relayController.getRelayMode(relayIdx)),
-                  relayController.getTempOn(relayIdx),
-                  relayController.getTempOff(relayIdx),
-                  "Relay " + String(relayNum)
-                );
-
-                success = true;
-                result = "Relay " + String(relayNum) + " mode set to " + mode;
-                logger.addLog(result);
-              }
-            }
-          }
-          else if (cmd.type == "set_thresholds") {
-            JsonDocument paramsDoc;
-            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
-
-            if (!error) {
-              int relayNum = paramsDoc["relay_number"];
-              float tempOn = paramsDoc["temp_on"];
-              float tempOff = paramsDoc["temp_off"];
-
-              if (relayNum >= 1 && relayNum <= 4) {
-                relayController.setTempThresholds(relayNum - 1, tempOn, tempOff);
-                relayController.applyRelayLogic(tempManager.getCurrentTemp());
-                configManager.saveSettings(updateFrequency, useFahrenheit);
-
-                // Send updated state back to server
-                int relayIdx = relayNum - 1;
-                apiClient.sendRelayState(
-                  relayNum,
-                  relayController.getRelayState(relayIdx),
-                  RelayController::modeToString(relayController.getRelayMode(relayIdx)),
-                  relayController.getTempOn(relayIdx),
-                  relayController.getTempOff(relayIdx),
-                  "Relay " + String(relayNum)
-                );
-
-                success = true;
-                result = "Relay " + String(relayNum) + " thresholds updated";
-                logger.addLog(result);
-              }
-            }
-          }
-          else if (cmd.type == "set_relay_type") {
-            JsonDocument paramsDoc;
-            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
-
-            if (!error) {
-              int relayNum = paramsDoc["relay_number"];
-              String type = paramsDoc["relay_type"].as<String>();
-
-              if (relayNum >= 1 && relayNum <= 4) {
-                RelayType newType = RelayType::HEATING;
-                if (type == "COOLING") newType = RelayType::COOLING;
-                else if (type == "GENERIC") newType = RelayType::GENERIC;
-                else if (type == "MANUAL_ONLY") newType = RelayType::MANUAL_ONLY;
-
-                relayController.setRelayType(relayNum - 1, newType);
-                relayController.applyRelayLogic(tempManager.getCurrentTemp());
-                configManager.saveSettings(updateFrequency, useFahrenheit);
-
-                // Send updated state back to server
-                int relayIdx = relayNum - 1;
-                apiClient.sendRelayState(
-                  relayNum,
-                  relayController.getRelayState(relayIdx),
-                  RelayController::modeToString(relayController.getRelayMode(relayIdx)),
-                  relayController.getTempOn(relayIdx),
-                  relayController.getTempOff(relayIdx),
-                  "Relay " + String(relayNum)
-                );
-
-                success = true;
-                result = "Relay " + String(relayNum) + " type set to " + type;
-                logger.addLog(result);
-              }
-            }
-          }
-          else if (cmd.type == "set_frequency") {
-            JsonDocument paramsDoc;
-            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
-
-            if (!error) {
-              int freq = paramsDoc["frequency"];
-              if (freq >= 1 && freq <= 60) {
-                updateFrequency = freq;
-                configManager.saveSettings(updateFrequency, useFahrenheit);
-
-                success = true;
-                result = "Update frequency set to " + String(freq) + "s";
-                logger.addLog(result);
-              }
-            }
-          }
-          else if (cmd.type == "set_unit") {
-            JsonDocument paramsDoc;
-            DeserializationError error = deserializeJson(paramsDoc, cmd.params);
-
-            if (!error) {
-              bool useFahr = paramsDoc["use_fahrenheit"];
-              useFahrenheit = useFahr;
-              configManager.saveSettings(updateFrequency, useFahrenheit);
-
-              success = true;
-              result = "Temperature unit set to " + String(useFahr ? "Fahrenheit" : "Celsius");
-              logger.addLog(result);
-            }
-          }
-          else if (cmd.type == "restart") {
-            success = true;
-            result = "Restarting device...";
-            logger.addLog(result);
-            apiClient.updateCommandStatus(cmd.id, "completed", result);
-            delay(1000);
-            ESP.restart();
-          }
-
-          // Mark command as completed or failed
-          if (success) {
-            apiClient.updateCommandStatus(cmd.id, "completed", result);
-          } else {
-            apiClient.updateCommandStatus(cmd.id, "failed", "Command execution failed");
-          }
+    if (apiClient.isTempDirty()) {
+      apiClient.sendTemperatureReading(tempManager.getCurrentTemp(), 0);
+      apiClient.clearTempDirty();
+    } else {
+      int dirtyRelay = apiClient.nextDirtyRelay();
+      if (dirtyRelay >= 0) {
+        apiClient.sendRelayState(
+          dirtyRelay + 1,
+          relayController.getRelayState(dirtyRelay),
+          RelayController::modeToString(relayController.getRelayMode(dirtyRelay)),
+          relayController.getTempOn(dirtyRelay),
+          relayController.getTempOff(dirtyRelay),
+          "Relay " + String(dirtyRelay + 1)
+        );
+        apiClient.clearRelayDirty(dirtyRelay);
+      } else if (now - lastHeartbeat >= API_HEARTBEAT_INTERVAL) {
+        lastHeartbeat = now;
+        apiClient.sendHeartbeat();
+      } else if (apiClient.hasPendingCommands()) {
+        ApiClient::Command* cmd = apiClient.peekNextCommand();
+        if (cmd) {
+          processCommand(*cmd);
+          apiClient.popNextCommand();
         }
+      } else if (now - lastCommandPoll >= API_COMMAND_POLL_INTERVAL) {
+        lastCommandPoll = now;
+        apiClient.pollCommands();
       }
     }
+  }
+
+  // ---- Periodic heap snapshot for debugging fragmentation ----
+  static unsigned long lastHeapLog = 0;
+  if (now - lastHeapLog >= HEAP_LOG_INTERVAL) {
+    lastHeapLog = now;
+    logger.addLog("Heap: " + String(ESP.getFreeHeap()) + "B free, frag " + String(ESP.getHeapFragmentation()) + "%");
   }
 
   delay(10);
