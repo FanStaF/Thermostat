@@ -4,9 +4,10 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Device;
-use App\Models\TemperatureReadingHourly;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -83,52 +84,91 @@ class DashboardController extends Controller
     }
 
     /**
-     * Pick the right data source per range:
-     * - short ranges (≤7d) read raw temperature_readings
-     * - long ranges (30d / all) read the hourly aggregate, plus any raw rows
-     *   from the current month that haven't been downsampled yet.
+     * Cap the chart at ~hundreds-to-low-thousands of points by aggregating
+     * inside the database. For longer ranges we'd otherwise pull every raw
+     * row (e.g. ~150k for 30 days at 18s update freq) and let JavaScript
+     * choke. Bucket size per range:
      *
-     * Returned collection is normalized so the chart blade can treat all rows
-     * the same: each item has temperature + recorded_at.
+     *   1h, 6h → raw (no aggregation; ranges are short enough)
+     *   24h    → 1-min   ≈ 1440 points
+     *   7d     → 5-min   ≈ 2016 points
+     *   30d    → 1-hour  ≈  720 points
+     *   all    → 1-day   (bounded by uptime in days)
      */
     private function loadReadings(Device $device, string $range): Collection
     {
-        $rawCutoff = match ($range) {
-            '1h'  => now()->subHour(),
-            '6h'  => now()->subHours(6),
-            '24h' => now()->subDay(),
-            '7d'  => now()->subDays(7),
-            default => null,
+        return match ($range) {
+            '1h'  => $this->rawReadings($device, now()->subHour()),
+            '6h'  => $this->rawReadings($device, now()->subHours(6)),
+            '24h' => $this->bucketedReadings($device, now()->subDay(),    60),
+            '7d'  => $this->bucketedReadings($device, now()->subDays(7),  300),
+            '30d' => $this->bucketedReadings($device, now()->subDays(30), 3600),
+            'all' => $this->bucketedReadings($device, null,               86400),
+            default => $this->rawReadings($device, now()->subDay()),
         };
+    }
 
-        if ($rawCutoff !== null) {
-            return $device->temperatureReadings()
-                ->where('recorded_at', '>=', $rawCutoff)
-                ->orderBy('recorded_at')
-                ->get();
-        }
-
-        $longCutoff = $range === '30d' ? now()->subDays(30) : null;
-
-        $hourlyQ = TemperatureReadingHourly::where('device_id', $device->id);
-        if ($longCutoff) {
-            $hourlyQ->where('bucket_start', '>=', $longCutoff);
-        }
-        $hourly = $hourlyQ->orderBy('bucket_start')->get()->map(fn ($h) => (object) [
-            'temperature' => $h->avg_temp,
-            'min_temp'    => $h->min_temp,
-            'max_temp'    => $h->max_temp,
-            'recorded_at' => $h->bucket_start,
-            'sample_count'=> $h->sample_count,
-        ]);
-
-        // Include the recent raw rows that haven't been downsampled yet so the
-        // chart doesn't have a gap between the latest hourly bucket and now.
-        $rawTail = $device->temperatureReadings()
-            ->when($longCutoff, fn ($q) => $q->where('recorded_at', '>=', $longCutoff))
+    private function rawReadings(Device $device, Carbon $start): Collection
+    {
+        return $device->temperatureReadings()
+            ->where('recorded_at', '>=', $start)
             ->orderBy('recorded_at')
-            ->get();
+            ->get(['recorded_at', 'temperature']);
+    }
 
-        return $hourly->concat($rawTail)->sortBy('recorded_at')->values();
+    /**
+     * Bucket raw + hourly-aggregate rows into $bucketSeconds-wide windows in
+     * a single DB round trip. UNION ALL lets a row come from either source —
+     * after the downsample command runs, raw older than ~30 days is gone and
+     * the hourly table is the only source for that span. Sample-weighted
+     * average preserves accuracy at the boundary where both contribute.
+     *
+     * MySQL-only: uses UNIX_TIMESTAMP / FROM_UNIXTIME.
+     */
+    private function bucketedReadings(Device $device, ?Carbon $start, int $bucketSeconds): Collection
+    {
+        $startStr = $start?->format('Y-m-d H:i:s');
+        $hourlyWhere = $startStr ? 'AND bucket_start >= ?' : '';
+        $rawWhere    = $startStr ? 'AND recorded_at >= ?' : '';
+
+        $sql = "
+            SELECT
+                FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(t) / ?) * ?) AS recorded_at,
+                SUM(temp * weight) / SUM(weight) AS temperature,
+                MIN(min_t) AS min_temp,
+                MAX(max_t) AS max_temp
+            FROM (
+                SELECT bucket_start AS t, avg_temp AS temp, min_temp AS min_t,
+                       max_temp AS max_t, sample_count AS weight
+                FROM temperature_readings_hourly
+                WHERE device_id = ? {$hourlyWhere}
+                UNION ALL
+                SELECT recorded_at AS t, temperature AS temp, temperature AS min_t,
+                       temperature AS max_t, 1 AS weight
+                FROM temperature_readings
+                WHERE device_id = ? {$rawWhere}
+            ) AS combined
+            GROUP BY FLOOR(UNIX_TIMESTAMP(t) / ?)
+            ORDER BY recorded_at
+        ";
+
+        $params = [$bucketSeconds, $bucketSeconds, $device->id];
+        if ($startStr) {
+            $params[] = $startStr;
+        }
+        $params[] = $device->id;
+        if ($startStr) {
+            $params[] = $startStr;
+        }
+        $params[] = $bucketSeconds;
+
+        $rows = DB::select($sql, $params);
+
+        return collect($rows)->map(fn ($r) => (object) [
+            'recorded_at' => Carbon::parse($r->recorded_at),
+            'temperature' => (float) $r->temperature,
+            'min_temp'    => (float) $r->min_temp,
+            'max_temp'    => (float) $r->max_temp,
+        ]);
     }
 }
