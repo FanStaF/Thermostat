@@ -120,24 +120,34 @@ class DashboardController extends Controller
         $hourlyWhere = $startStr ? 'AND bucket_start >= ?' : '';
         $rawWhere    = $startStr ? 'AND recorded_at >= ?' : '';
 
+        // Bucket id is computed once in the inner query and grouped on directly
+        // — the outer query is then a pure projection, which keeps MySQL's
+        // ONLY_FULL_GROUP_BY mode happy without repeating the bucket expression.
         $sql = "
             SELECT
-                FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(t) / ?) * ?) AS recorded_at,
-                SUM(temp * weight) / SUM(weight) AS temperature,
-                MIN(min_t) AS min_temp,
-                MAX(max_t) AS max_temp
+                FROM_UNIXTIME(bucket_id * ?) AS recorded_at,
+                temperature,
+                min_temp,
+                max_temp
             FROM (
-                SELECT bucket_start AS t, avg_temp AS temp, min_temp AS min_t,
-                       max_temp AS max_t, sample_count AS weight
-                FROM temperature_readings_hourly
-                WHERE device_id = ? {$hourlyWhere}
-                UNION ALL
-                SELECT recorded_at AS t, temperature AS temp, temperature AS min_t,
-                       temperature AS max_t, 1 AS weight
-                FROM temperature_readings
-                WHERE device_id = ? {$rawWhere}
-            ) AS combined
-            GROUP BY FLOOR(UNIX_TIMESTAMP(t) / ?)
+                SELECT
+                    FLOOR(UNIX_TIMESTAMP(t) / ?) AS bucket_id,
+                    SUM(temp * weight) / SUM(weight) AS temperature,
+                    MIN(min_t) AS min_temp,
+                    MAX(max_t) AS max_temp
+                FROM (
+                    SELECT bucket_start AS t, avg_temp AS temp, min_temp AS min_t,
+                           max_temp AS max_t, sample_count AS weight
+                    FROM temperature_readings_hourly
+                    WHERE device_id = ? {$hourlyWhere}
+                    UNION ALL
+                    SELECT recorded_at AS t, temperature AS temp, temperature AS min_t,
+                           temperature AS max_t, 1 AS weight
+                    FROM temperature_readings
+                    WHERE device_id = ? {$rawWhere}
+                ) AS combined
+                GROUP BY bucket_id
+            ) AS bucketed
             ORDER BY recorded_at
         ";
 
@@ -149,7 +159,6 @@ class DashboardController extends Controller
         if ($startStr) {
             $params[] = $startStr;
         }
-        $params[] = $bucketSeconds;
 
         $rows = DB::select($sql, $params);
 
