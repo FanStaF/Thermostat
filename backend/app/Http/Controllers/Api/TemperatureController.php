@@ -13,14 +13,8 @@ class TemperatureController extends Controller
     /**
      * Store temperature reading from device
      */
-    public function store(Request $request, $deviceId)
+    public function store(Request $request, Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
         $validator = Validator::make($request->all(), [
             'temperature' => 'required|numeric|between:-50,150',
             'sensor_id' => 'nullable|integer|between:0,255',
@@ -31,13 +25,12 @@ class TemperatureController extends Controller
         }
 
         $reading = TemperatureReading::create([
-            'device_id' => $deviceId,
+            'device_id' => $device->id,
             'temperature' => $request->temperature,
             'sensor_id' => $request->sensor_id ?? 0,
             'recorded_at' => now(),
         ]);
 
-        // Update device last_seen_at
         $device->update(['last_seen_at' => now()]);
 
         return response()->json([
@@ -49,52 +42,36 @@ class TemperatureController extends Controller
     /**
      * Get temperature readings for a device
      */
-    public function index(Request $request, $deviceId)
+    public function index(Request $request, Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
         $limit = $request->input('limit', 100);
         $sensorId = $request->input('sensor_id');
 
-        $query = TemperatureReading::where('device_id', $deviceId)
+        $query = TemperatureReading::where('device_id', $device->id)
             ->latest('recorded_at');
 
         if ($sensorId !== null) {
             $query->where('sensor_id', $sensorId);
         }
 
-        $readings = $query->limit($limit)->get();
-
-        return response()->json($readings);
+        return response()->json($query->limit($limit)->get());
     }
 
     /**
      * Get temperature statistics for a device
      */
-    public function stats($deviceId)
+    public function stats(Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
-        $last24Hours = TemperatureReading::where('device_id', $deviceId)
+        $last24Hours = TemperatureReading::where('device_id', $device->id)
             ->where('recorded_at', '>=', now()->subDay())
             ->get();
 
-        $stats = [
+        return response()->json([
             'count' => $last24Hours->count(),
             'avg' => $last24Hours->avg('temperature'),
             'min' => $last24Hours->min('temperature'),
             'max' => $last24Hours->max('temperature'),
             'latest' => $last24Hours->sortByDesc('recorded_at')->first(),
-        ];
-
-        return response()->json($stats);
+        ]);
     }
 }

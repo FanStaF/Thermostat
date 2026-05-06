@@ -14,14 +14,8 @@ class RelayController extends Controller
     /**
      * Update relay state from device
      */
-    public function updateState(Request $request, $deviceId)
+    public function updateState(Request $request, Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
         $validator = Validator::make($request->all(), [
             'relay_number' => 'required|integer|between:1,4',
             'state' => 'required|boolean',
@@ -35,10 +29,9 @@ class RelayController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // Get or create relay
         $relay = Relay::firstOrCreate(
             [
-                'device_id' => $deviceId,
+                'device_id' => $device->id,
                 'relay_number' => $request->relay_number,
             ],
             [
@@ -46,7 +39,6 @@ class RelayController extends Controller
             ]
         );
 
-        // Create state record
         $state = RelayState::create([
             'relay_id' => $relay->id,
             'state' => $request->state,
@@ -56,7 +48,6 @@ class RelayController extends Controller
             'changed_at' => now(),
         ]);
 
-        // Update device last_seen_at
         $device->update(['last_seen_at' => now()]);
 
         return response()->json([
@@ -69,27 +60,19 @@ class RelayController extends Controller
     /**
      * Get all relays for a device
      */
-    public function index($deviceId)
+    public function index(Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
-        $relays = Relay::where('device_id', $deviceId)
-            ->with('currentState')
-            ->get();
-
-        return response()->json($relays);
+        return response()->json(
+            Relay::where('device_id', $device->id)->with('currentState')->get()
+        );
     }
 
     /**
      * Get relay state history
      */
-    public function history($deviceId, $relayNumber)
+    public function history(Device $device, $relayNumber)
     {
-        $relay = Relay::where('device_id', $deviceId)
+        $relay = Relay::where('device_id', $device->id)
             ->where('relay_number', $relayNumber)
             ->first();
 
@@ -97,37 +80,28 @@ class RelayController extends Controller
             return response()->json(['error' => 'Relay not found'], 404);
         }
 
-        $states = RelayState::where('relay_id', $relay->id)
-            ->latest('changed_at')
-            ->limit(100)
-            ->get();
-
-        return response()->json($states);
+        return response()->json(
+            RelayState::where('relay_id', $relay->id)
+                ->latest('changed_at')
+                ->limit(100)
+                ->get()
+        );
     }
 
     /**
-     * Update relay name
+     * Update relay name / type (web)
      */
-    public function update(Request $request, $deviceId, $relayId)
+    public function update(Request $request, Device $device, Relay $relay)
     {
-        $relay = Relay::where('device_id', $deviceId)
-            ->where('id', $relayId)
-            ->first();
-
-        if (!$relay) {
+        if ((int) $relay->device_id !== (int) $device->id) {
             return response()->json(['error' => 'Relay not found'], 404);
         }
 
-        // Check permissions when called from web (has auth user)
         if (auth()->check()) {
             $user = auth()->user();
-
-            // Check if user has access to this device
-            if (!$user->canAccessDevice($deviceId)) {
+            if (!$user->canAccessDevice($device->id)) {
                 return response()->json(['error' => 'You do not have permission to access this device'], 403);
             }
-
-            // Check if user has control permissions (viewers can't edit)
             if (!$user->canControl()) {
                 return response()->json(['error' => 'You do not have permission to edit relays'], 403);
             }
@@ -142,19 +116,11 @@ class RelayController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $updateData = [];
-        if ($request->has('name')) {
-            $updateData['name'] = $request->name;
-        }
-        if ($request->has('relay_type')) {
-            $updateData['relay_type'] = $request->relay_type;
-        }
-
-        $relay->update($updateData);
+        $relay->update($request->only(['name', 'relay_type']));
 
         return response()->json([
             'message' => 'Relay updated successfully',
-            'relay' => $relay
-        ], 200);
+            'relay' => $relay,
+        ]);
     }
 }

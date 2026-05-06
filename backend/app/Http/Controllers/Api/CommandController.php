@@ -13,20 +13,13 @@ class CommandController extends Controller
     /**
      * Get pending commands for a device (polled by ESP8266)
      */
-    public function pending($deviceId)
+    public function pending(Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
-        $commands = DeviceCommand::where('device_id', $deviceId)
+        $commands = DeviceCommand::where('device_id', $device->id)
             ->where('status', 'pending')
             ->orderBy('created_at', 'asc')
             ->get();
 
-        // Update device last_seen_at
         $device->update(['last_seen_at' => now()]);
 
         return response()->json(['commands' => $commands]);
@@ -35,24 +28,13 @@ class CommandController extends Controller
     /**
      * Create a new command for a device (from web interface)
      */
-    public function store(Request $request, $deviceId)
+    public function store(Request $request, Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
-        // Check permissions when called from web (has auth user)
         if (auth()->check()) {
             $user = auth()->user();
-
-            // Check if user has access to this device
-            if (!$user->canAccessDevice($deviceId)) {
+            if (!$user->canAccessDevice($device->id)) {
                 return response()->json(['error' => 'You do not have permission to access this device'], 403);
             }
-
-            // Check if user has control permissions (viewers can't send commands)
             if (!$user->canControl()) {
                 return response()->json(['error' => 'You do not have permission to control devices'], 403);
             }
@@ -68,7 +50,7 @@ class CommandController extends Controller
         }
 
         $command = DeviceCommand::create([
-            'device_id' => $deviceId,
+            'device_id' => $device->id,
             'type' => $request->type,
             'params' => $request->params,
             'status' => 'pending',
@@ -83,13 +65,9 @@ class CommandController extends Controller
     /**
      * Update command status (acknowledged/completed/failed by device)
      */
-    public function update(Request $request, $deviceId, $commandId)
+    public function update(Request $request, Device $device, DeviceCommand $command)
     {
-        $command = DeviceCommand::where('device_id', $deviceId)
-            ->where('id', $commandId)
-            ->first();
-
-        if (!$command) {
+        if ((int) $command->device_id !== (int) $device->id) {
             return response()->json(['error' => 'Command not found'], 404);
         }
 
@@ -124,19 +102,13 @@ class CommandController extends Controller
     /**
      * Get all commands for a device
      */
-    public function index($deviceId)
+    public function index(Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
-        $commands = DeviceCommand::where('device_id', $deviceId)
-            ->latest('created_at')
-            ->limit(50)
-            ->get();
-
-        return response()->json($commands);
+        return response()->json(
+            DeviceCommand::where('device_id', $device->id)
+                ->latest('created_at')
+                ->limit(50)
+                ->get()
+        );
     }
 }

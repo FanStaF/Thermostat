@@ -16,14 +16,12 @@ Route::get('/user', function (Request $request) {
 Route::post('/devices/register', [DeviceController::class, 'register'])
     ->middleware(['api.key', 'throttle:10,1']);
 
-// Protected Device Endpoints (require Sanctum token, rate limited to 120 per minute)
-Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
-    // Device Management
+// Device-token API: every endpoint here is called by the firmware itself, so
+// we additionally require the token's owner device to match the {device} bind.
+Route::middleware(['auth:sanctum', 'throttle:120,1', 'device.scope'])->group(function () {
     Route::post('/devices/{device}/heartbeat', [DeviceController::class, 'heartbeat']);
-    Route::get('/devices', [DeviceController::class, 'index']);
     Route::get('/devices/{device}', [DeviceController::class, 'show']);
     Route::get('/devices/{device}/dashboard-data', [DeviceController::class, 'dashboardData']);
-    Route::patch('/devices/{device}', [DeviceController::class, 'update']);
 
     // Temperature Readings
     Route::post('/devices/{device}/temperature', [TemperatureController::class, 'store']);
@@ -34,13 +32,22 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::post('/devices/{device}/relay-state', [RelayController::class, 'updateState']);
     Route::get('/devices/{device}/relays', [RelayController::class, 'index']);
     Route::get('/devices/{device}/relays/{relay}/history', [RelayController::class, 'history']);
-    Route::patch('/devices/{device}/relays/{relay}', [RelayController::class, 'update']);
 
-    // Device Commands
+    // Device Commands (device polls / acknowledges)
     Route::get('/devices/{device}/commands/pending', [CommandController::class, 'pending']);
-    Route::post('/devices/{device}/commands', [CommandController::class, 'store']);
     Route::put('/devices/{device}/commands/{command}', [CommandController::class, 'update']);
     Route::get('/devices/{device}/commands', [CommandController::class, 'index']);
+});
+
+// User-facing API (Sanctum + session for the SPA, no per-device scope check —
+// authorization is handled in-controller via canAccessDevice).
+Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
+    Route::get('/devices', [DeviceController::class, 'index']);
+    Route::patch('/devices/{device}', [DeviceController::class, 'update']);
+
+    Route::patch('/devices/{device}/relays/{relay}', [RelayController::class, 'update']);
+
+    Route::post('/devices/{device}/commands', [CommandController::class, 'store']);
 
     // Alert Subscriptions
     Route::get('/alert-types', [AlertSubscriptionController::class, 'types']);

@@ -159,7 +159,10 @@ class AlertEvaluator
         $devices = $this->getDevicesToCheck($sub);
 
         foreach ($devices as $device) {
-            $minutesSinceLastSeen = now()->diffInMinutes($device->last_seen);
+            if (!$device->last_seen_at) {
+                continue; // never reported — treated by evaluateTempSensorOffline
+            }
+            $minutesSinceLastSeen = (int) now()->diffInMinutes($device->last_seen_at);
 
             if ($minutesSinceLastSeen > 5) {
                 return [
@@ -168,7 +171,7 @@ class AlertEvaluator
                     'message' => "{$device->name} has been offline for {$minutesSinceLastSeen} minutes",
                     'metadata' => [
                         'device_name' => $device->name,
-                        'last_seen' => $device->last_seen->toIso8601String(),
+                        'last_seen' => $device->last_seen_at->toIso8601String(),
                         'minutes_offline' => $minutesSinceLastSeen,
                     ],
                 ];
@@ -185,7 +188,10 @@ class AlertEvaluator
         $devices = $this->getDevicesToCheck($sub);
 
         foreach ($devices as $device) {
-            $minutesSinceLastSeen = now()->diffInMinutes($device->last_seen);
+            if (!$device->last_seen_at) {
+                continue;
+            }
+            $minutesSinceLastSeen = (int) now()->diffInMinutes($device->last_seen_at);
 
             // Device is online (within last 2 minutes)
             if ($minutesSinceLastSeen <= 2) {
@@ -201,7 +207,7 @@ class AlertEvaluator
                         'message' => "{$device->name} is back online",
                         'metadata' => [
                             'device_name' => $device->name,
-                            'last_seen' => $device->last_seen->toIso8601String(),
+                            'last_seen' => $device->last_seen_at->toIso8601String(),
                         ],
                     ];
                 }
@@ -217,7 +223,10 @@ class AlertEvaluator
         $devices = $this->getDevicesToCheck($sub);
 
         foreach ($devices as $device) {
-            $minutesSinceLastSeen = now()->diffInMinutes($device->last_seen);
+            if (!$device->last_seen_at) {
+                continue;
+            }
+            $minutesSinceLastSeen = (int) now()->diffInMinutes($device->last_seen_at);
 
             if ($minutesSinceLastSeen > 15) {
                 return [
@@ -226,7 +235,7 @@ class AlertEvaluator
                     'message' => "{$device->name} has not reported in {$minutesSinceLastSeen} minutes",
                     'metadata' => [
                         'device_name' => $device->name,
-                        'last_seen' => $device->last_seen->toIso8601String(),
+                        'last_seen' => $device->last_seen_at->toIso8601String(),
                         'minutes_since_report' => $minutesSinceLastSeen,
                     ],
                 ];
@@ -357,12 +366,8 @@ class AlertEvaluator
 
     private function evaluateDailySummary(AlertSubscription $sub): ?array
     {
-        // Check if it's the scheduled time (default 09:00)
-        $scheduledTime = $sub->scheduled_time ?? '09:00';
-        $now = now();
-
-        // Only trigger within 5 minutes of scheduled time
-        if ($now->format('H:i') < $scheduledTime || $now->format('H:i') > date('H:i', strtotime($scheduledTime) + 300)) {
+        // Trigger within 5 minutes of the scheduled time, midnight-safe.
+        if (!$this->isWithinScheduleWindow($sub->scheduled_time ?? '09:00')) {
             return null;
         }
 
@@ -389,16 +394,10 @@ class AlertEvaluator
 
     private function evaluateWeeklySummary(AlertSubscription $sub): ?array
     {
-        // Check if it's the scheduled time and Monday
-        $scheduledTime = $sub->scheduled_time ?? '09:00';
-        $now = now();
-
-        if ($now->dayOfWeek !== 1) { // Not Monday
+        if (now()->dayOfWeek !== 1) { // Not Monday
             return null;
         }
-
-        // Only trigger within 5 minutes of scheduled time
-        if ($now->format('H:i') < $scheduledTime || $now->format('H:i') > date('H:i', strtotime($scheduledTime) + 300)) {
+        if (!$this->isWithinScheduleWindow($sub->scheduled_time ?? '09:00')) {
             return null;
         }
 
@@ -426,9 +425,11 @@ class AlertEvaluator
     private function calculateDailyStats(Device $device): ?array
     {
         $yesterday = now()->subDay();
+        $start = $yesterday->copy()->startOfDay();
+        $end   = $yesterday->copy()->endOfDay();
 
         $readings = $device->temperatureReadings()
-            ->whereDate('recorded_at', $yesterday->toDateString())
+            ->whereBetween('recorded_at', [$start, $end])
             ->get();
 
         if ($readings->isEmpty()) {
@@ -437,15 +438,11 @@ class AlertEvaluator
 
         $temps = $readings->pluck('temperature');
 
-        // Calculate relay on time
         $relayStats = [];
         foreach ($device->relays as $relay) {
-            $onTime = RelayState::where('relay_id', $relay->id)
-                ->whereDate('changed_at', $yesterday->toDateString())
-                ->where('state', true)
-                ->count();
-
-            $relayStats[$relay->name] = $this->formatDuration($onTime * 60); // Assuming 1 entry per minute avg
+            $relayStats[$relay->name] = $this->formatDuration(
+                $this->relayOnSeconds($relay->id, $start, $end)
+            );
         }
 
         return [
@@ -462,8 +459,8 @@ class AlertEvaluator
     private function calculateWeeklyStats(Device $device): ?array
     {
         $lastWeek = now()->subWeek();
-        $startOfWeek = $lastWeek->startOfWeek();
-        $endOfWeek = $lastWeek->endOfWeek();
+        $startOfWeek = $lastWeek->copy()->startOfWeek();
+        $endOfWeek = $lastWeek->copy()->endOfWeek();
 
         $readings = $device->temperatureReadings()
             ->whereBetween('recorded_at', [$startOfWeek, $endOfWeek])
@@ -475,15 +472,11 @@ class AlertEvaluator
 
         $temps = $readings->pluck('temperature');
 
-        // Calculate relay on time
         $relayStats = [];
         foreach ($device->relays as $relay) {
-            $onTime = RelayState::where('relay_id', $relay->id)
-                ->whereBetween('changed_at', [$startOfWeek, $endOfWeek])
-                ->where('state', true)
-                ->count();
-
-            $relayStats[$relay->name] = $this->formatDuration($onTime * 60);
+            $relayStats[$relay->name] = $this->formatDuration(
+                $this->relayOnSeconds($relay->id, $startOfWeek, $endOfWeek)
+            );
         }
 
         return [
@@ -497,12 +490,70 @@ class AlertEvaluator
         ];
     }
 
+    /**
+     * Sum the seconds a relay was ON within [$start, $end].
+     *
+     * The relay_states table only records *transitions*, so to compute on-time
+     * we have to walk forward through the changes inside the window, plus the
+     * last known state from before the window opens.
+     */
+    private function relayOnSeconds(int $relayId, \DateTimeInterface $start, \DateTimeInterface $end): int
+    {
+        $priorState = RelayState::where('relay_id', $relayId)
+            ->where('changed_at', '<=', $start)
+            ->latest('changed_at')
+            ->first();
+
+        $changes = RelayState::where('relay_id', $relayId)
+            ->where('changed_at', '>', $start)
+            ->where('changed_at', '<=', $end)
+            ->orderBy('changed_at')
+            ->get();
+
+        $onSeconds = 0;
+        $cursor    = $start;
+        $isOn      = (bool) ($priorState->state ?? false);
+
+        foreach ($changes as $change) {
+            if ($isOn) {
+                $onSeconds += $change->changed_at->getTimestamp() - $cursor->getTimestamp();
+            }
+            $cursor = $change->changed_at;
+            $isOn   = (bool) $change->state;
+        }
+
+        if ($isOn) {
+            $onSeconds += $end->getTimestamp() - $cursor->getTimestamp();
+        }
+
+        return max(0, $onSeconds);
+    }
+
     private function formatDuration(int $seconds): string
     {
-        $hours = floor($seconds / 3600);
-        $minutes = floor(($seconds % 3600) / 60);
+        $hours = intdiv($seconds, 3600);
+        $minutes = intdiv($seconds % 3600, 60);
 
         return sprintf('%dh %dm', $hours, $minutes);
+    }
+
+    /**
+     * Trigger window: the 5 minutes starting at $scheduledTime ("HH:MM"),
+     * midnight-safe. Uses today's date so the comparison is monotonic.
+     */
+    private function isWithinScheduleWindow(string $scheduledTime): bool
+    {
+        try {
+            $start = \Carbon\Carbon::createFromFormat('H:i', $scheduledTime)
+                ?->setDate(now()->year, now()->month, now()->day);
+        } catch (\Throwable) {
+            return false;
+        }
+        if (!$start) {
+            return false;
+        }
+        $end = $start->copy()->addMinutes(5);
+        return now()->between($start, $end);
     }
 
     private function getDevicesToCheck(AlertSubscription $sub): \Illuminate\Database\Eloquent\Collection
