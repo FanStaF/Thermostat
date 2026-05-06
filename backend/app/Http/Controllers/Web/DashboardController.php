@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Device;
+use App\Models\TemperatureReadingHourly;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 class DashboardController extends Controller
 {
@@ -64,49 +66,69 @@ class DashboardController extends Controller
     /**
      * Display device detail page with charts and controls
      */
-    public function show(Request $request, $deviceId)
+    public function show(Request $request, Device $device)
     {
         $user = auth()->user();
 
-        $device = Device::with([
-            'settings',
-            'relays.currentState',
-        ])->findOrFail($deviceId);
-
-        // Check if user has permission to access this device
-        if (!$user->canAccessDevice($deviceId)) {
+        if (!$user->canAccessDevice($device->id)) {
             abort(403, 'You do not have permission to access this device.');
         }
 
-        // Get time range from request, default to 24h
+        $device->load(['settings', 'relays.currentState']);
+
         $range = $request->get('range', '24h');
-
-        // Calculate the start time based on range
-        $query = $device->temperatureReadings();
-
-        switch ($range) {
-            case '1h':
-                $query->where('recorded_at', '>=', now()->subHour());
-                break;
-            case '6h':
-                $query->where('recorded_at', '>=', now()->subHours(6));
-                break;
-            case '24h':
-                $query->where('recorded_at', '>=', now()->subDay());
-                break;
-            case '7d':
-                $query->where('recorded_at', '>=', now()->subDays(7));
-                break;
-            case '30d':
-                $query->where('recorded_at', '>=', now()->subDays(30));
-                break;
-            case 'all':
-                // No time filter - get all readings
-                break;
-        }
-
-        $readings = $query->orderBy('recorded_at', 'asc')->get();
+        $readings = $this->loadReadings($device, $range);
 
         return view('dashboard.show', compact('device', 'readings', 'range'));
+    }
+
+    /**
+     * Pick the right data source per range:
+     * - short ranges (≤7d) read raw temperature_readings
+     * - long ranges (30d / all) read the hourly aggregate, plus any raw rows
+     *   from the current month that haven't been downsampled yet.
+     *
+     * Returned collection is normalized so the chart blade can treat all rows
+     * the same: each item has temperature + recorded_at.
+     */
+    private function loadReadings(Device $device, string $range): Collection
+    {
+        $rawCutoff = match ($range) {
+            '1h'  => now()->subHour(),
+            '6h'  => now()->subHours(6),
+            '24h' => now()->subDay(),
+            '7d'  => now()->subDays(7),
+            default => null,
+        };
+
+        if ($rawCutoff !== null) {
+            return $device->temperatureReadings()
+                ->where('recorded_at', '>=', $rawCutoff)
+                ->orderBy('recorded_at')
+                ->get();
+        }
+
+        $longCutoff = $range === '30d' ? now()->subDays(30) : null;
+
+        $hourlyQ = TemperatureReadingHourly::where('device_id', $device->id);
+        if ($longCutoff) {
+            $hourlyQ->where('bucket_start', '>=', $longCutoff);
+        }
+        $hourly = $hourlyQ->orderBy('bucket_start')->get()->map(fn ($h) => (object) [
+            'temperature' => $h->avg_temp,
+            'min_temp'    => $h->min_temp,
+            'max_temp'    => $h->max_temp,
+            'recorded_at' => $h->bucket_start,
+            'sample_count'=> $h->sample_count,
+        ]);
+
+        // Include the recent raw rows that haven't been downsampled yet so the
+        // chart doesn't have a gap between the latest hourly bucket and now.
+        $rawTail = $device->temperatureReadings()
+            ->when($longCutoff, fn ($q) => $q->where('recorded_at', '>=', $longCutoff))
+            ->orderBy('recorded_at')
+            ->get();
+
+        return $hourly->concat($rawTail)->sortBy('recorded_at')->values();
     }
 }

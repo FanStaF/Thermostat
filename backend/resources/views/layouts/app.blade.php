@@ -91,6 +91,9 @@
                         <a href="{{ route('users.index') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('users.*') ? '600' : '400' }};">
                             Users
                         </a>
+                        <a href="{{ route('maintenance.index') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('maintenance.*') ? '600' : '400' }};">
+                            Maintenance
+                        </a>
                     @endif
                     <a href="{{ route('alerts.index') }}" style="color: white; text-decoration: none; font-weight: {{ request()->routeIs('alerts.*') ? '600' : '400' }};">
                         Alerts

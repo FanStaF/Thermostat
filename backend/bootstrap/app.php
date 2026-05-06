@@ -16,11 +16,20 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'api.key' => \App\Http\Middleware\ValidateApiKey::class,
             'admin' => \App\Http\Middleware\EnsureUserIsAdmin::class,
+            'device.scope' => \App\Http\Middleware\EnsureDeviceTokenMatchesRoute::class,
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {
         $schedule->command('alerts:check')
             ->everyMinute()
+            ->withoutOverlapping();
+
+        $schedule->command('temperature:downsample')
+            ->dailyAt('03:15')
+            ->withoutOverlapping();
+
+        $schedule->command('db:prune')
+            ->dailyAt('03:30')
             ->withoutOverlapping();
     })
     ->withExceptions(function (Exceptions $exceptions): void {

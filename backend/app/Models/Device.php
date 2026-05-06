@@ -18,12 +18,10 @@ class Device extends Authenticatable
         'mac_address',
         'firmware_version',
         'last_seen_at',
-        'is_online',
     ];
 
     protected $casts = [
         'last_seen_at' => 'datetime',
-        'is_online' => 'boolean',
     ];
 
     public function temperatureReadings(): HasMany

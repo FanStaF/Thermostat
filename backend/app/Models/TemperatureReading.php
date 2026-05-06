@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TemperatureReading extends Model
 {
-    const UPDATED_AT = null;
+    public $timestamps = false;
 
     protected $fillable = [
         'device_id',

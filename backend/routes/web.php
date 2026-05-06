@@ -44,4 +44,8 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'admin'])->group(function () {
     Route::resource('users', UsersController::class);
     Route::post('/alert-subscriptions/{id}/test', [\App\Http\Controllers\Api\AlertSubscriptionController::class, 'testTrigger']);
+
+    Route::get('/maintenance', [\App\Http\Controllers\Web\MaintenanceController::class, 'index'])->name('maintenance.index');
+    Route::post('/maintenance/downsample', [\App\Http\Controllers\Web\MaintenanceController::class, 'runDownsample'])->name('maintenance.downsample');
+    Route::post('/maintenance/prune', [\App\Http\Controllers\Web\MaintenanceController::class, 'runPrune'])->name('maintenance.prune');
 });

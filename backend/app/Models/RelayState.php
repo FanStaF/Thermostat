@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RelayState extends Model
 {
-    const UPDATED_AT = null;
+    public $timestamps = false;
 
     protected $fillable = [
         'relay_id',

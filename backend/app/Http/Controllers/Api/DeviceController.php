@@ -35,11 +35,9 @@ class DeviceController extends Controller
                 'firmware_version' => $request->firmware_version,
                 'name' => $request->name ?? $request->hostname,
                 'last_seen_at' => now(),
-                'is_online' => true,
             ]
         );
 
-        // Create default settings if device is new
         if ($device->wasRecentlyCreated) {
             DeviceSetting::create([
                 'device_id' => $device->id,
@@ -49,7 +47,8 @@ class DeviceController extends Controller
             ]);
         }
 
-        // Revoke old tokens and create new one
+        // Revoke old tokens and create a new one. The firmware re-registers on
+        // every boot, so this happens often — fine for now, the table is small.
         $device->tokens()->delete();
         $token = $device->createToken('device-token')->plainTextToken;
 
@@ -63,21 +62,14 @@ class DeviceController extends Controller
     /**
      * Update device heartbeat (keep-alive)
      */
-    public function heartbeat(Request $request, $deviceId)
+    public function heartbeat(Request $request, Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
         $device->update([
             'last_seen_at' => now(),
-            'is_online' => true,
             'ip_address' => $request->ip_address ?? $device->ip_address,
         ]);
 
-        return response()->json(['message' => 'Heartbeat updated'], 200);
+        return response()->json(['message' => 'Heartbeat updated']);
     }
 
     /**
@@ -85,29 +77,23 @@ class DeviceController extends Controller
      */
     public function index()
     {
-        $devices = Device::with(['settings', 'relays.currentState'])
-            ->withCount('temperatureReadings')
-            ->get();
-
-        return response()->json($devices);
+        return response()->json(
+            Device::with(['settings', 'relays.currentState'])
+                ->withCount('temperatureReadings')
+                ->get()
+        );
     }
 
     /**
      * Get a specific device
      */
-    public function show($deviceId)
+    public function show(Device $device)
     {
-        $device = Device::with([
+        $device->load([
             'settings',
             'relays.currentState',
-            'temperatureReadings' => function ($query) {
-                $query->latest('recorded_at')->limit(100);
-            }
-        ])->find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
+            'temperatureReadings' => fn ($q) => $q->latest('recorded_at')->limit(100),
+        ]);
 
         return response()->json($device);
     }
@@ -115,24 +101,13 @@ class DeviceController extends Controller
     /**
      * Update device name
      */
-    public function update(Request $request, $deviceId)
+    public function update(Request $request, Device $device)
     {
-        $device = Device::find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
-        // Check permissions when called from web (has auth user)
         if (auth()->check()) {
             $user = auth()->user();
-
-            // Check if user has access to this device
-            if (!$user->canAccessDevice($deviceId)) {
+            if (!$user->canAccessDevice($device->id)) {
                 return response()->json(['error' => 'You do not have permission to access this device'], 403);
             }
-
-            // Check if user has control permissions (viewers can't edit)
             if (!$user->canControl()) {
                 return response()->json(['error' => 'You do not have permission to edit devices'], 403);
             }
@@ -146,31 +121,23 @@ class DeviceController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $device->update([
-            'name' => $request->name,
-        ]);
+        $device->update(['name' => $request->name]);
 
         return response()->json([
             'message' => 'Device updated successfully',
-            'device' => $device
-        ], 200);
+            'device' => $device,
+        ]);
     }
 
     /**
      * Get dashboard data for AJAX polling
      */
-    public function dashboardData($deviceId)
+    public function dashboardData(Device $device)
     {
-        $device = Device::with([
+        $device->load([
             'relays.currentState',
-            'temperatureReadings' => function ($query) {
-                $query->latest('recorded_at')->limit(1);
-            }
-        ])->find($deviceId);
-
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
+            'temperatureReadings' => fn ($q) => $q->latest('recorded_at')->limit(1),
+        ]);
 
         return response()->json([
             'latestReading' => $device->temperatureReadings->first(),
@@ -181,24 +148,15 @@ class DeviceController extends Controller
     /**
      * Update device settings
      */
-    public function updateSettings(Request $request, $deviceId)
+    public function updateSettings(Request $request, Device $device)
     {
-        $device = Device::with('settings')->find($deviceId);
+        $device->load('settings');
 
-        if (!$device) {
-            return response()->json(['error' => 'Device not found'], 404);
-        }
-
-        // Check permissions when called from web (has auth user)
         if (auth()->check()) {
             $user = auth()->user();
-
-            // Check if user has access to this device
-            if (!$user->canAccessDevice($deviceId)) {
+            if (!$user->canAccessDevice($device->id)) {
                 return response()->json(['error' => 'You do not have permission to access this device'], 403);
             }
-
-            // Check if user has control permissions (viewers can't edit)
             if (!$user->canControl()) {
                 return response()->json(['error' => 'You do not have permission to edit device settings'], 403);
             }
@@ -214,15 +172,16 @@ class DeviceController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $payload = $request->only(['update_frequency', 'use_fahrenheit', 'timezone']);
         if ($device->settings) {
-            $device->settings->update($request->only(['update_frequency', 'use_fahrenheit', 'timezone']));
+            $device->settings->update($payload);
         } else {
-            $device->settings()->create($request->only(['update_frequency', 'use_fahrenheit', 'timezone']));
+            $device->settings()->create($payload);
         }
 
         return response()->json([
             'message' => 'Settings updated successfully',
-            'settings' => $device->settings
-        ], 200);
+            'settings' => $device->settings,
+        ]);
     }
 }
