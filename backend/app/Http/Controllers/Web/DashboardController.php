@@ -38,27 +38,16 @@ class DashboardController extends Controller
 
         $devices = $query->get();
 
-        // Add latest temperature to each device
-        $devices->each(function($device) {
+        // Trend sparkline: 8h window with 30-min buckets ≈ 16 points per device,
+        // computed in MySQL so the dashboard doesn't drag in thousands of raw
+        // rows per device just to throw most of them away.
+        $devices->each(function ($device) {
             $device->latest_temp = $device->temperatureReadings->first();
-
-            // Get temperature trend (last 8 hours, sampled to ~16 datapoints)
-            $readings = $device->temperatureReadings()
-                ->where('recorded_at', '>=', now()->subHours(8))
-                ->orderBy('recorded_at', 'asc')
-                ->get();
-
-            // Sample to ~16 datapoints
-            $totalReadings = $readings->count();
-            if ($totalReadings > 16) {
-                $step = (int) ceil($totalReadings / 16);
-                $sampledReadings = $readings->filter(function($reading, $index) use ($step) {
-                    return $index % $step === 0;
-                });
-                $device->temp_trend_data = $sampledReadings->values();
-            } else {
-                $device->temp_trend_data = $readings;
-            }
+            $device->temp_trend_data = $this->bucketedReadings(
+                $device,
+                now()->subHours(8),
+                1800
+            );
         });
 
         return view('dashboard.index', compact('devices'));
