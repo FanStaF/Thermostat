@@ -21,7 +21,7 @@ class MaintenanceController extends Controller
             'devices'                       => Device::count(),
             'temperature_readings_raw'      => TemperatureReading::count(),
             'temperature_readings_hourly'   => TemperatureReadingHourly::count(),
-            'oldest_raw_reading'            => optional(TemperatureReading::min('recorded_at')),
+            'oldest_raw_reading'            => TemperatureReading::min('recorded_at'),
             'relay_states'                  => RelayState::count(),
             'device_commands_total'         => DeviceCommand::count(),
             'device_commands_pending'       => DeviceCommand::where('status', 'pending')->count(),
