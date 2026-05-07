@@ -39,22 +39,42 @@ class RelayController extends Controller
             ]
         );
 
-        $state = RelayState::create([
-            'relay_id' => $relay->id,
-            'state' => $request->state,
-            'mode' => $request->mode,
-            'temp_on' => $request->temp_on,
-            'temp_off' => $request->temp_off,
-            'changed_at' => now(),
-        ]);
+        // Idempotent: if the latest stored state matches the incoming payload
+        // exactly, skip the INSERT. Devices re-send on every boot and on every
+        // web-handler invocation, so without this the table fills with no-op
+        // duplicates.
+        $latest = RelayState::where('relay_id', $relay->id)
+            ->latest('changed_at')
+            ->first();
+
+        $incomingTempOn  = round((float) $request->temp_on, 2);
+        $incomingTempOff = round((float) $request->temp_off, 2);
+
+        $isDuplicate = $latest
+            && (bool) $latest->state === (bool) $request->state
+            && $latest->mode === $request->mode
+            && round((float) $latest->temp_on, 2) === $incomingTempOn
+            && round((float) $latest->temp_off, 2) === $incomingTempOff;
+
+        $state = $latest;
+        if (!$isDuplicate) {
+            $state = RelayState::create([
+                'relay_id' => $relay->id,
+                'state'    => $request->state,
+                'mode'     => $request->mode,
+                'temp_on'  => $request->temp_on,
+                'temp_off' => $request->temp_off,
+                'changed_at' => now(),
+            ]);
+        }
 
         $device->update(['last_seen_at' => now()]);
 
         return response()->json([
-            'message' => 'Relay state updated',
+            'message'  => $isDuplicate ? 'No change, ignored' : 'Relay state updated',
             'relay_id' => $relay->id,
-            'state_id' => $state->id,
-        ], 201);
+            'state_id' => $state?->id,
+        ], $isDuplicate ? 200 : 201);
     }
 
     /**

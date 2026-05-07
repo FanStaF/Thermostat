@@ -31,8 +31,9 @@ class MaintenanceController extends Controller
         ];
 
         $lastRuns = [
-            'downsample' => $this->safeCacheRead('maintenance.downsample'),
-            'prune'      => $this->safeCacheRead('maintenance.prune'),
+            'downsample'           => $this->safeCacheRead('maintenance.downsample'),
+            'prune'                => $this->safeCacheRead('maintenance.prune'),
+            'dedupe_relay_states'  => $this->safeCacheRead('maintenance.dedupe_relay_states'),
         ];
 
         return view('maintenance.index', compact('stats', 'lastRuns'));
@@ -60,6 +61,18 @@ class MaintenanceController extends Controller
 
         return back()->with('maintenance_output', [
             'job'    => 'db:prune',
+            'output' => $output,
+        ]);
+    }
+
+    public function runDedupeRelayStates(Request $request)
+    {
+        $output = $this->runArtisan('relay-states:dedupe', [
+            '--dry-run' => $request->boolean('dry_run'),
+        ]);
+
+        return back()->with('maintenance_output', [
+            'job'    => 'relay-states:dedupe',
             'output' => $output,
         ]);
     }

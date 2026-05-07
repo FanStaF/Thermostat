@@ -72,4 +72,26 @@
         <button type="submit" class="btn">Run prune</button>
     </form>
 </div>
+
+<div class="card">
+    <div class="card-title">Dedupe relay state changes (one-shot)</div>
+    <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
+        Removes <code>relay_states</code> rows that match their immediate predecessor for the same relay — historical no-ops from the firmware re-sending state on every boot and on every web-handler invocation. Safe to run repeatedly.
+    </p>
+    @if($lastRuns['dedupe_relay_states']['at'])
+        <p style="margin-bottom: 15px; font-size: 13px; color: #27ae60;">
+            Last run: {{ \Carbon\Carbon::parse($lastRuns['dedupe_relay_states']['at'])->diffForHumans() }} —
+            {{ $lastRuns['dedupe_relay_states']['result'] }}
+        </p>
+    @else
+        <p style="margin-bottom: 15px; font-size: 13px; color: #999;">Never run.</p>
+    @endif
+    <form method="POST" action="{{ route('maintenance.dedupe-relay-states') }}" style="display: flex; gap: 15px; align-items: center;">
+        @csrf
+        <label style="font-size: 14px; color: #333;">
+            <input type="checkbox" name="dry_run" value="1" style="margin-right: 6px;">Dry run (count only)
+        </label>
+        <button type="submit" class="btn">Run dedupe</button>
+    </form>
+</div>
 @endsection

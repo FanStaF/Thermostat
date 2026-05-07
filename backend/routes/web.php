@@ -48,4 +48,5 @@ Route::middleware(['auth', 'admin'])->group(function () {
     Route::get('/maintenance', [\App\Http\Controllers\Web\MaintenanceController::class, 'index'])->name('maintenance.index');
     Route::post('/maintenance/downsample', [\App\Http\Controllers\Web\MaintenanceController::class, 'runDownsample'])->name('maintenance.downsample');
     Route::post('/maintenance/prune', [\App\Http\Controllers\Web\MaintenanceController::class, 'runPrune'])->name('maintenance.prune');
+    Route::post('/maintenance/dedupe-relay-states', [\App\Http\Controllers\Web\MaintenanceController::class, 'runDedupeRelayStates'])->name('maintenance.dedupe-relay-states');
 });
