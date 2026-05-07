@@ -24,6 +24,17 @@ class Device extends Authenticatable
         'last_seen_at' => 'datetime',
     ];
 
+    /**
+     * Computed online flag — true if we've heard from the device in the last
+     * 5 minutes. Replaces the dropped `is_online` column (which was set to
+     * true on heartbeat but never flipped back).
+     */
+    public function getIsOnlineAttribute(): bool
+    {
+        return $this->last_seen_at !== null
+            && $this->last_seen_at->isAfter(now()->subMinutes(5));
+    }
+
     public function temperatureReadings(): HasMany
     {
         return $this->hasMany(TemperatureReading::class);

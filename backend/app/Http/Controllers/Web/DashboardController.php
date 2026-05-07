@@ -69,7 +69,15 @@ class DashboardController extends Controller
         $range = $request->get('range', '24h');
         $readings = $this->loadReadings($device, $range);
 
-        return view('dashboard.show', compact('device', 'readings', 'range'));
+        // Current-temp card needs the actual most recent raw reading. With
+        // long ranges the chart is bucketed (e.g. hourly for 30d), so
+        // $readings->last() can be hours behind even when the device is
+        // sending data every few seconds.
+        $latestReading = $device->temperatureReadings()
+            ->latest('recorded_at')
+            ->first();
+
+        return view('dashboard.show', compact('device', 'readings', 'range', 'latestReading'));
     }
 
     /**
@@ -162,11 +170,29 @@ class DashboardController extends Controller
 
         $rows = DB::select($sql, $params);
 
-        return collect($rows)->map(fn ($r) => (object) [
+        $bucketed = collect($rows)->map(fn ($r) => (object) [
             'recorded_at' => Carbon::parse($r->recorded_at),
             'temperature' => (float) $r->temperature,
             'min_temp'    => (float) $r->min_temp,
             'max_temp'    => (float) $r->max_temp,
         ]);
+
+        // Pin the chart to "now": append the latest raw reading if it's
+        // newer than the last bucket boundary. Otherwise a 30d view ends
+        // at the most recent completed hour even when the device is
+        // currently sending readings every few seconds.
+        $latest = $device->temperatureReadings()
+            ->latest('recorded_at')
+            ->first();
+        if ($latest && (!$bucketed->last() || $latest->recorded_at > $bucketed->last()->recorded_at)) {
+            $bucketed->push((object) [
+                'recorded_at' => $latest->recorded_at,
+                'temperature' => (float) $latest->temperature,
+                'min_temp'    => (float) $latest->temperature,
+                'max_temp'    => (float) $latest->temperature,
+            ]);
+        }
+
+        return $bucketed;
     }
 }

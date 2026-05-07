@@ -54,9 +54,8 @@
     <div style="text-align: center; padding: 20px;">
         <div style="font-size: 18px; color: #666; margin-bottom: 10px;">Current Temperature</div>
         <div style="font-size: 48px; font-weight: bold; color: #3498db;" id="currentTemp">
-            @if($readings->isNotEmpty())
+            @if($latestReading)
                 @php
-                    $latestReading = $readings->last();
                     $currentTemp = $latestReading->temperature;
                     if ($device->settings && $device->settings->use_fahrenheit) {
                         $currentTemp = ($currentTemp * 9/5) + 32;
@@ -67,9 +66,9 @@
                 --
             @endif
         </div>
-        @if($readings->isNotEmpty())
+        @if($latestReading)
             <div style="font-size: 14px; color: #999; margin-top: 5px;">
-                Last updated: {{ $readings->last()->recorded_at->diffForHumans() }}
+                Last updated: {{ $latestReading->recorded_at->diffForHumans() }}
             </div>
         @endif
     </div>
