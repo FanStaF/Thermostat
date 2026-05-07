@@ -79,13 +79,13 @@ void setup() {
 
   // Get initial temperature and apply relay logic BEFORE the web server
   // starts so /status returns sensible values immediately.
-  float initialTemp;
-  if (tempManager.readTemperatureWithValidation(initialTemp)) {
-    tempManager.setCurrentTemp(initialTemp);
-    logger.addLog("Initial temp: " + String(initialTemp, 1) + "C");
+  TempReadResult initial = tempManager.readTemperatureWithValidation();
+  if (initial.ok) {
+    tempManager.setCurrentTemp(initial.temp);
+    logger.addLog("Initial temp: " + String(initial.temp, 1) + "C");
   } else {
     tempManager.setCurrentTemp(20.0); // Safe default if sensor not working
-    logger.addLog("WARNING: Sensor read failed, using default 20.0C");
+    logger.addLog("WARN: Initial sensor read failed (" + String(initial.lastFailReason) + "), using default 20.0C");
   }
 
   logger.addLog("Applying relay settings...");
@@ -261,17 +261,31 @@ void loop() {
   if (now - lastTempUpdate >= (unsigned long)updateFrequency * 1000) {
     lastTempUpdate = now;
 
-    float newTemp;
-    if (tempManager.readTemperatureWithValidation(newTemp)) {
-      tempManager.setCurrentTemp(newTemp);
+    static int consecutiveSensorFails = 0;
+    TempReadResult r = tempManager.readTemperatureWithValidation();
+
+    if (r.ok) {
+      // Surface a retry-recovery so the user can see flaky-bus events without
+      // having to read between successful reads.
+      if (r.attemptsTaken > 1 && r.lastFailReason) {
+        logger.addLog(String("Sensor recovered after retry (") + r.lastFailReason + ")");
+      }
+      // End-of-streak summary: only log if we'd been actually failing (>=1
+      // both-attempts-failed event), not just retrying.
+      if (consecutiveSensorFails > 0) {
+        logger.addLog("Sensor recovered after " + String(consecutiveSensorFails) + " failed read(s)");
+        consecutiveSensorFails = 0;
+      }
+
+      tempManager.setCurrentTemp(r.temp);
       Serial.print("Temp: ");
-      Serial.print(newTemp, 1);
+      Serial.print(r.temp, 1);
       Serial.print("C | Relays: ");
 
       bool previousStates[4];
       for (int i = 0; i < 4; i++) previousStates[i] = relayController.getRelayState(i);
 
-      relayController.applyRelayLogic(newTemp);
+      relayController.applyRelayLogic(r.temp);
 
       for (int i = 0; i < 4; i++) {
         Serial.print(i + 1);
@@ -286,10 +300,16 @@ void loop() {
       }
       Serial.println();
 
-      tempManager.logTemperature(newTemp, 0);
+      tempManager.logTemperature(r.temp, 0);
       apiClient.markTempDirty();
     } else {
-      logger.addLog("Using last known temp: " + String(tempManager.getCurrentTemp(), 1) + "C");
+      consecutiveSensorFails++;
+      String msg = String("Sensor read failed (") + (r.lastFailReason ? r.lastFailReason : "unknown")
+                 + "), kept last " + String(tempManager.getCurrentTemp(), 1) + "C";
+      if (consecutiveSensorFails > 1) {
+        msg += " [" + String(consecutiveSensorFails) + " consecutive]";
+      }
+      logger.addLog(msg);
     }
   }
 

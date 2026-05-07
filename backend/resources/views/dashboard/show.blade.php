@@ -812,8 +812,11 @@
                         borderColor = '#2196F3';
                     }
 
+                    // Prefer the firmware's formatted "time" (HH:MM:SS UTC or +1h2m uptime);
+                    // fall back to seconds-since-boot for older firmware.
+                    const timeLabel = log.time ? log.time : `${log.ts}s`;
                     html += `<div style="background: #252526; padding: 6px 8px; margin: 2px 0; border-radius: 3px; border-left: 3px solid ${borderColor}; color: ${color};">`;
-                    html += `<span style="color: #888;">[${log.ts}s]</span> ${log.msg}`;
+                    html += `<span style="color: #888;">[${timeLabel}]</span> ${log.msg}`;
                     html += `</div>`;
                 });
 

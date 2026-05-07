@@ -1,4 +1,27 @@
 #include "WebInterface.h"
+#include <time.h>
+
+// Format a log entry's timestamp for display: HH:MM:SS UTC when NTP is
+// synced, or a compact uptime like "+1h23m" / "+5m25s" / "+12s" before that.
+static String formatLogTime(const LogEntry& entry) {
+  if (entry.epoch >= 1000000000) {
+    struct tm tinfo;
+    gmtime_r(&entry.epoch, &tinfo);
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d",
+             tinfo.tm_hour, tinfo.tm_min, tinfo.tm_sec);
+    return String(buf);
+  }
+  unsigned long sec = entry.timestamp / 1000;
+  unsigned long h = sec / 3600;
+  unsigned long m = (sec % 3600) / 60;
+  unsigned long s = sec % 60;
+  char buf[16];
+  if (h > 0)      snprintf(buf, sizeof(buf), "+%luh%lum", h, m);
+  else if (m > 0) snprintf(buf, sizeof(buf), "+%lum%lus", m, s);
+  else            snprintf(buf, sizeof(buf), "+%lus", s);
+  return String(buf);
+}
 
 WebInterface::WebInterface(TemperatureManager& tempMgr, RelayController& relayCtrl,
                            ConfigManager& cfgMgr, ApiClient& apiCli, int& updateFreq, bool& useFahr)
@@ -324,7 +347,7 @@ void WebInterface::handleLogs() {
     else if (msg.indexOf("ERROR") >= 0 || msg.indexOf("Error") >= 0 || msg.indexOf("failed") >= 0) logClass += " error";
     else if (msg.indexOf("command") >= 0 || msg.indexOf("Command") >= 0) logClass += " cmd";
 
-    server.sendContent("<div class='" + logClass + "'>[" + String(logs[logIdx].timestamp / 1000) + "s] " + msg + "</div>");
+    server.sendContent("<div class='" + logClass + "'>[" + formatLogTime(logs[logIdx]) + "] " + msg + "</div>");
     if (((i - startIdx) & 0x0F) == 0) yield(); // feed watchdog every 16 entries
   }
 
@@ -386,7 +409,9 @@ void WebInterface::handleLogsJson() {
 
       server.sendContent("{\"ts\":");
       server.sendContent(String(logs[i].timestamp / 1000));
-      server.sendContent(",\"msg\":\"");
+      server.sendContent(",\"time\":\"");
+      server.sendContent(formatLogTime(logs[i]));
+      server.sendContent("\",\"msg\":\"");
       server.sendContent(escaped);
       server.sendContent("\"}");
       count++;

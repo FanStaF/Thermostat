@@ -9,19 +9,30 @@ void TemperatureManager::begin() {
   logger.addLog("DS18B20 sensor initialized");
 }
 
-bool TemperatureManager::readTemperatureWithValidation(float &outTemp) {
-  for (int attempt = 0; attempt < 2; attempt++) { // Try twice
+TempReadResult TemperatureManager::readTemperatureWithValidation() {
+  TempReadResult result = {false, 0.0f, 0, nullptr};
+  const char* lastReason = nullptr;
+
+  for (int attempt = 0; attempt < 2; attempt++) {
+    result.attemptsTaken = attempt + 1;
+
     float samples[TEMP_NUM_SAMPLES];
+    bool sawDisconnect = false;
+    bool sawOutOfRange = false;
     bool allValid = true;
 
-    // Take samples
     for (int i = 0; i < TEMP_NUM_SAMPLES; i++) {
       sensors.requestTemperatures();
       delay(TEMP_SAMPLE_DELAY);
       samples[i] = sensors.getTempCByIndex(0);
 
-      // Check for obvious sensor errors
-      if (samples[i] == -127.0 || samples[i] < TEMP_MIN_VALID || samples[i] > TEMP_MAX_VALID) {
+      if (samples[i] == -127.0f) {
+        sawDisconnect = true;
+        allValid = false;
+        break;
+      }
+      if (samples[i] < TEMP_MIN_VALID || samples[i] > TEMP_MAX_VALID) {
+        sawOutOfRange = true;
         allValid = false;
         break;
       }
@@ -29,33 +40,32 @@ bool TemperatureManager::readTemperatureWithValidation(float &outTemp) {
     }
 
     if (!allValid) {
-      logger.addLog("Temp read failed (attempt " + String(attempt + 1) + "), retrying...");
+      lastReason = sawDisconnect ? "disconnect" : "out-of-range";
       delay(TEMP_RETRY_DELAY);
       continue;
     }
 
-    // Calculate average and check consistency
-    float avg = (samples[0] + samples[1] + samples[2]) / 3.0;
-    float maxDiff = 0;
-
+    float avg = (samples[0] + samples[1] + samples[2]) / 3.0f;
+    float maxDiff = 0.0f;
     for (int i = 0; i < TEMP_NUM_SAMPLES; i++) {
-      float diff = abs(samples[i] - avg);
-      if (diff > maxDiff) maxDiff = diff;
+      float d = fabs(samples[i] - avg);
+      if (d > maxDiff) maxDiff = d;
     }
 
     if (maxDiff <= TEMP_MAX_DIFF) {
-      // Samples are consistent
-      outTemp = avg;
-      return true;
-    } else {
-      logger.addLog("Temp samples inconsistent (diff=" + String(maxDiff, 2) + "C), retrying...");
-      delay(TEMP_RETRY_DELAY);
+      result.ok = true;
+      result.temp = avg;
+      result.lastFailReason = lastReason; // null on first-try success, set on retry-success
+      return result;
     }
+
+    lastReason = "inconsistent";
+    delay(TEMP_RETRY_DELAY);
   }
 
   // Both attempts failed
-  logger.addLog("ERROR: Temperature read failed after 2 attempts");
-  return false;
+  result.lastFailReason = lastReason ? lastReason : "unknown";
+  return result;
 }
 
 void TemperatureManager::logTemperature(float temp, int sensorID) {

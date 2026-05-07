@@ -9,12 +9,20 @@
 #include "Config.h"
 #include "SystemLogger.h"
 
+struct TempReadResult {
+  bool ok;                     // true on successful read (possibly after retry)
+  float temp;                  // valid only when ok
+  uint8_t attemptsTaken;       // 1 if first try succeeded, 2 if a retry happened
+  const char* lastFailReason;  // nullptr if no attempt failed; otherwise
+                               // "disconnect", "out-of-range", or "inconsistent"
+};
+
 class TemperatureManager {
 public:
   TemperatureManager();
 
   void begin();
-  bool readTemperatureWithValidation(float &outTemp);
+  TempReadResult readTemperatureWithValidation();
   void logTemperature(float temp, int sensorID);
 
   float getCurrentTemp() const { return currentTemp; }

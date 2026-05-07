@@ -2,12 +2,14 @@
 #define SYSTEM_LOGGER_H
 
 #include <Arduino.h>
+#include <time.h>
 #include <vector>
 #include "Config.h"
 
 struct LogEntry {
   String message;
-  unsigned long timestamp;
+  unsigned long timestamp; // millis() — for ordering and uptime fallback
+  time_t epoch;            // UTC unix time, or 0 if NTP not synced yet
 };
 
 class SystemLogger {
