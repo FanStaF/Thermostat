@@ -299,20 +299,29 @@ void loop() {
   // between each one.
   if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
     if (apiClient.isTempDirty()) {
-      apiClient.sendTemperatureReading(tempManager.getCurrentTemp(), 0);
-      apiClient.clearTempDirty();
+      if (apiClient.sendTemperatureReading(tempManager.getCurrentTemp(), 0)) {
+        apiClient.clearTempDirty();
+      }
     } else {
       int dirtyRelay = apiClient.nextDirtyRelay();
       if (dirtyRelay >= 0) {
-        apiClient.sendRelayState(
-          dirtyRelay + 1,
-          relayController.getRelayState(dirtyRelay),
-          RelayController::modeToString(relayController.getRelayMode(dirtyRelay)),
-          relayController.getTempOn(dirtyRelay),
-          relayController.getTempOff(dirtyRelay),
-          "Relay " + String(dirtyRelay + 1)
-        );
-        apiClient.clearRelayDirty(dirtyRelay);
+        bool  state   = relayController.getRelayState(dirtyRelay);
+        String mode   = RelayController::modeToString(relayController.getRelayMode(dirtyRelay));
+        float tempOn  = relayController.getTempOn(dirtyRelay);
+        float tempOff = relayController.getTempOff(dirtyRelay);
+
+        // Skip the network round trip if the backend already has this exact
+        // state — covers boot-time blast, no-op web clicks, and command
+        // handlers that re-mark dirty without actually changing anything.
+        if (apiClient.relayStateMatchesLastSent(dirtyRelay, state, mode, tempOn, tempOff)) {
+          apiClient.clearRelayDirty(dirtyRelay);
+        } else if (apiClient.sendRelayState(
+              dirtyRelay + 1, state, mode, tempOn, tempOff,
+              "Relay " + String(dirtyRelay + 1))) {
+          apiClient.recordRelaySent(dirtyRelay, state, mode, tempOn, tempOff);
+          apiClient.clearRelayDirty(dirtyRelay);
+        }
+        // If the send failed, leave dirty=true so the next loop iteration retries.
       } else if (now - lastHeartbeat >= API_HEARTBEAT_INTERVAL) {
         lastHeartbeat = now;
         apiClient.sendHeartbeat();

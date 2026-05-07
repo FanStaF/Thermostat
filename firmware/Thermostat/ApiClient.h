@@ -47,6 +47,13 @@ public:
   Command* peekNextCommand();
   void popNextCommand();
 
+  // Last-sent dedupe: avoids re-POSTing identical relay state. The drain
+  // logic asks whether the candidate matches what was last successfully sent
+  // and skips the network call if so. recordRelaySent() is called only after
+  // a 2xx response from the backend.
+  bool relayStateMatchesLastSent(int relayIdx, bool state, const String& mode, float tempOn, float tempOff) const;
+  void recordRelaySent(int relayIdx, bool state, const String& mode, float tempOn, float tempOff);
+
 private:
   String apiUrl;
   int deviceId;
@@ -62,6 +69,15 @@ private:
 
   bool relayDirty[4];
   bool tempDirty;
+
+  struct RelaySnapshot {
+    bool valid;
+    bool state;
+    String mode;
+    float tempOn;
+    float tempOff;
+  };
+  RelaySnapshot lastSent[4];
 
   bool makePostRequest(const String& endpoint, const String& jsonPayload, String& response);
   bool makeGetRequest(const String& endpoint, String& response);

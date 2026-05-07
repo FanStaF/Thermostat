@@ -10,7 +10,10 @@ ApiClient::ApiClient(const String& apiUrl)
   : apiUrl(apiUrl), deviceId(-1), authToken(""),
     pendingCommandCount(0), nextCommandIdx(0), tempDirty(false) {
   useHttps = apiUrl.startsWith("https://");
-  for (int i = 0; i < 4; i++) relayDirty[i] = false;
+  for (int i = 0; i < 4; i++) {
+    relayDirty[i] = false;
+    lastSent[i].valid = false;
+  }
 }
 
 void ApiClient::begin() {
@@ -410,4 +413,23 @@ void ApiClient::popNextCommand() {
     nextCommandIdx = 0;
     pendingCommandCount = 0;
   }
+}
+
+bool ApiClient::relayStateMatchesLastSent(int relayIdx, bool state, const String& mode, float tempOn, float tempOff) const {
+  if (relayIdx < 0 || relayIdx >= 4) return false;
+  const RelaySnapshot& s = lastSent[relayIdx];
+  if (!s.valid) return false;
+  return s.state == state
+      && s.mode == mode
+      && fabs(s.tempOn  - tempOn)  < 0.01f
+      && fabs(s.tempOff - tempOff) < 0.01f;
+}
+
+void ApiClient::recordRelaySent(int relayIdx, bool state, const String& mode, float tempOn, float tempOff) {
+  if (relayIdx < 0 || relayIdx >= 4) return;
+  lastSent[relayIdx].valid   = true;
+  lastSent[relayIdx].state   = state;
+  lastSent[relayIdx].mode    = mode;
+  lastSent[relayIdx].tempOn  = tempOn;
+  lastSent[relayIdx].tempOff = tempOff;
 }
