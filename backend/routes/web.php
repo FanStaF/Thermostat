@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Route;
 
 // Authentication Routes
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login')->middleware('guest');
-Route::post('/login', [AuthController::class, 'login'])->middleware('guest');
+Route::post('/login', [AuthController::class, 'login'])->middleware(['guest', 'throttle:20,1']);
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout')->middleware('auth');
 
 // Protected Dashboard Routes
@@ -32,6 +32,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/devices/{device}/commands', [CommandController::class, 'store']);
     Route::patch('/devices/{device}', [DeviceController::class, 'update']);
     Route::patch('/devices/{device}/settings', [DeviceController::class, 'updateSettings']);
+    Route::get('/devices/{device}/dashboard-data', [DeviceController::class, 'dashboardData']);
     Route::patch('/devices/{device}/relays/{relay}', [RelayController::class, 'update']);
 
     // Alert subscription endpoints (web session auth)
@@ -44,6 +45,7 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'admin'])->group(function () {
     Route::resource('users', UsersController::class);
     Route::post('/alert-subscriptions/{id}/test', [\App\Http\Controllers\Api\AlertSubscriptionController::class, 'testTrigger']);
+    Route::post('/devices/{device}/allow-reregistration', [DeviceController::class, 'allowReregistration'])->name('devices.allow-reregistration');
 
     Route::get('/maintenance', [\App\Http\Controllers\Web\MaintenanceController::class, 'index'])->name('maintenance.index');
     Route::post('/maintenance/downsample', [\App\Http\Controllers\Web\MaintenanceController::class, 'runDownsample'])->name('maintenance.downsample');

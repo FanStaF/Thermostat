@@ -101,12 +101,14 @@ class DeviceHeartbeatTest extends TestCase
 
     public function test_register_clears_stale_fault(): void
     {
-        [$device] = $this->makeDevice([
+        [$device, $token] = $this->makeDevice([
             'sensor_fault' => true,
             'last_good_reading_at' => now()->subDays(3),
         ]);
 
+        // Re-registering an existing device requires its current token.
         $this->withHeader('X-API-Key', 'test-key')
+            ->withToken($token)
             ->postJson('/api/devices/register', [
                 'hostname' => 'thermostat',
                 'mac_address' => 'AA:BB:CC:DD:EE:FF',

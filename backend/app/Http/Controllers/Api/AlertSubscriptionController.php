@@ -97,6 +97,13 @@ class AlertSubscriptionController extends Controller
 
         // Check if user has permission for this alert type
         $targetUser = User::find($targetUserId);
+
+        // Device-specific subscriptions are limited to devices the target
+        // user can access. Global ("All Devices") subscriptions are allowed;
+        // the evaluator only checks devices the subscriber can access.
+        if ($request->device_id && !$targetUser->canAccessDevice($request->device_id)) {
+            return response()->json(['error' => 'No access to this device'], 403);
+        }
         $requiredPermission = $alertType->requiresPermission();
 
         if ($requiredPermission === 'user' && $targetUser->role === 'viewer') {
@@ -285,7 +292,7 @@ class AlertSubscriptionController extends Controller
 
     private function generateRealAlertData($subscription, $evaluator): ?array
     {
-        $device = $subscription->device ?? \App\Models\Device::with(['relays.currentState', 'temperatureReadings'])->first();
+        $device = $subscription->device ?? \App\Models\Device::with(['relays.currentState'])->first();
 
         if (!$device) {
             return null;
@@ -515,7 +522,7 @@ class AlertSubscriptionController extends Controller
 
         // Check if latest state is too old (before period start)
         $latestState = $states->last();
-        if ($latestState->changed_at < $periodStart->subHours(1)) {
+        if ($latestState->changed_at < $periodStart->copy()->subHours(1)) {
             // Data is stale, device hasn't reported during or near the period
             return -1; // No data available
         }

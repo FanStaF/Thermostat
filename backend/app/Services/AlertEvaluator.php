@@ -562,7 +562,8 @@ class AlertEvaluator
     private function isWithinScheduleWindow(string $scheduledTime): bool
     {
         try {
-            $start = \Carbon\Carbon::createFromFormat('H:i', $scheduledTime)
+            // TIME columns read back as "HH:MM:SS"; only HH:MM matters.
+            $start = \Carbon\Carbon::createFromFormat('H:i', substr($scheduledTime, 0, 5))
                 ?->setDate(now()->year, now()->month, now()->day);
         } catch (\Throwable) {
             return false;
@@ -574,13 +575,29 @@ class AlertEvaluator
         return now()->between($start, $end);
     }
 
+    /**
+     * Devices this subscription covers, limited to what the subscriber may
+     * access. Readings are NOT eager-loaded: evaluators query
+     * temperatureReadings() with their own limits, and loading the whole
+     * relation pulls every raw row into memory on each run.
+     */
     private function getDevicesToCheck(AlertSubscription $sub): \Illuminate\Database\Eloquent\Collection
     {
-        return $sub->device_id
-            ? Device::with(['relays.currentState', 'temperatureReadings'])
-                ->where('id', $sub->device_id)
-                ->get()
-            : Device::with(['relays.currentState', 'temperatureReadings'])->get();
+        $query = Device::with(['relays.currentState']);
+
+        if ($sub->device_id) {
+            $query->where('id', $sub->device_id);
+        }
+
+        $user = $sub->user;
+        if (!$user) {
+            return $query->whereRaw('1 = 0')->get();
+        }
+        if (!$user->isAdmin()) {
+            $query->whereIn('id', $user->devices()->pluck('devices.id'));
+        }
+
+        return $query->get();
     }
 
     private function getDeviceState(Device $device): array

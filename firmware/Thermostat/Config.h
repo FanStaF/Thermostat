@@ -16,7 +16,7 @@ constexpr size_t MAX_LOG_MESSAGE_LEN = 160; // longer messages are truncated
 
 // ---- API Configuration ----
 // API_URL is defined in Credentials.h
-#define FIRMWARE_VERSION "2.2.0"
+#define FIRMWARE_VERSION "2.3.0"
 constexpr int API_HEARTBEAT_INTERVAL = 60000;  // ms (1 minute)
 constexpr int API_COMMAND_POLL_INTERVAL = 30000;  // ms (30 seconds)
 constexpr int HTTP_REQUEST_TIMEOUT = 5000;     // ms — kept short so blocking calls don't starve the web server

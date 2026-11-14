@@ -20,11 +20,13 @@ class Device extends Authenticatable
         'last_seen_at',
         'sensor_fault',
         'last_good_reading_at',
+        'reregistration_allowed',
     ];
 
     protected $casts = [
         'last_seen_at' => 'datetime',
         'sensor_fault' => 'boolean',
+        'reregistration_allowed' => 'boolean',
         'last_good_reading_at' => 'datetime',
     ];
 

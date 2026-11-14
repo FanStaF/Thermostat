@@ -46,6 +46,17 @@
             <div><strong>IP:</strong> {{ $device->ip_address ?? 'N/A' }}</div>
             <div><strong>Firmware:</strong> {{ $device->firmware_version ?? 'Unknown' }}</div>
             <div><strong>Last Seen:</strong> {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'Never' }}</div>
+            @if(auth()->user()->isAdmin())
+                <div>
+                    @if($device->reregistration_allowed)
+                        <span style="color: #e67e22;">Re-registration allowed (until the device next registers)</span>
+                    @else
+                        <button type="button" onclick="allowReregistration()"
+                                title="Use if the device lost its stored token (e.g. full flash erase) and is being refused registration"
+                                style="padding: 4px 10px; font-size: 12px; cursor: pointer;">Allow re-registration</button>
+                    @endif
+                </div>
+            @endif
         </div>
     </div>
 </div>
@@ -458,7 +469,11 @@
         async function refreshData() {
             try {
                 // Fetch latest temperature and relay data
-                const response = await fetch(`/api/devices/${deviceId}/dashboard-data`);
+                // Web route (session auth). The /api/ variant only accepts the
+                // device's own token, so a browser can never use it.
+                const response = await fetch(`/devices/${deviceId}/dashboard-data`, {
+                    headers: { 'Accept': 'application/json' }
+                });
                 if (!response.ok) return;
 
                 const data = await response.json();
@@ -541,6 +556,19 @@
         setTimeout(() => {
             msgEl.style.display = 'none';
         }, 5000);
+    }
+
+    function allowReregistration() {
+        if (!confirm('Let this device register again without its current token? Only do this if the device lost its token.')) return;
+        fetch(`/devices/${deviceId}/allow-reregistration`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            }
+        })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); window.location.reload(); })
+        .catch(e => showMessage('Error: ' + e.message, true));
     }
 
     function sendCommand(type, params) {
@@ -791,7 +819,15 @@
     }
 
     @if($device->ip_address)
-    const deviceIp = '{{ $device->ip_address }}';
+    const deviceIp = @json($device->ip_address);
+
+    // Device log text is untrusted (it can contain request/command input):
+    // never insert it as HTML unescaped.
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
 
     async function loadDeviceLogs() {
         const container = document.getElementById('deviceLogsContainer');
@@ -813,18 +849,18 @@
             const data = await response.json();
 
             if (data.logs && data.logs.length > 0) {
-                let html = `<div style="color: #888; margin-bottom: 10px;">Total: ${data.total} logs (showing ${data.logs.length})</div>`;
+                let html = `<div style="color: #888; margin-bottom: 10px;">Total: ${Number(data.total) || 0} logs (showing ${data.logs.length})</div>`;
 
                 data.logs.forEach(log => {
                     let color = '#d4d4d4';
                     let borderColor = 'transparent';
 
-                    if (log.msg.includes('Relay')) {
+                    if (String(log.msg).includes('Relay')) {
                         borderColor = '#4CAF50';
-                    } else if (log.msg.includes('ERROR') || log.msg.includes('Error') || log.msg.includes('failed')) {
+                    } else if (String(log.msg).includes('ERROR') || String(log.msg).includes('Error') || String(log.msg).includes('failed')) {
                         borderColor = '#f44336';
                         color = '#f44336';
-                    } else if (log.msg.includes('command') || log.msg.includes('Command')) {
+                    } else if (String(log.msg).includes('command') || String(log.msg).includes('Command')) {
                         borderColor = '#2196F3';
                     }
 
@@ -832,7 +868,7 @@
                     // fall back to seconds-since-boot for older firmware.
                     const timeLabel = log.time ? log.time : `${log.ts}s`;
                     html += `<div style="background: #252526; padding: 6px 8px; margin: 2px 0; border-radius: 3px; border-left: 3px solid ${borderColor}; color: ${color};">`;
-                    html += `<span style="color: #888;">[${timeLabel}]</span> ${log.msg}`;
+                    html += `<span style="color: #888;">[${escapeHtml(timeLabel)}]</span> ${escapeHtml(log.msg)}`;
                     html += `</div>`;
                 });
 
@@ -841,9 +877,9 @@
                 container.innerHTML = '<p style="color: #666;">No logs available.</p>';
             }
         } catch (error) {
-            container.innerHTML = `<p style="color: #f44336;">Could not load device logs: ${error.message}</p>
+            container.innerHTML = `<p style="color: #f44336;">Could not load device logs: ${escapeHtml(error.message)}</p>
                 <p style="color: #888; font-size: 11px;">Make sure you're on the same network as the device, or the device may be offline.</p>
-                <p style="color: #888; font-size: 11px;">Device IP: ${deviceIp}</p>`;
+                <p style="color: #888; font-size: 11px;">Device IP: ${escapeHtml(deviceIp)}</p>`;
         }
     }
 
