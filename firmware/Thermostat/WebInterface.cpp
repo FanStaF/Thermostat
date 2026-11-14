@@ -25,19 +25,24 @@ const H={'X-Requested-With':'thermostat','Content-Type':'application/json'};let 
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function addRow(ssid){const n=document.getElementById('nets');if(n.children.length>=max){alert('Maximum '+max+' networks');return}
 const d=document.createElement('div');d.className='row';d.innerHTML="<input class='ssid' placeholder='Network name' value='"+esc(ssid)+"'><input class='pw' type='password' placeholder='Password'><button type='button' class='del' onclick='this.parentNode.remove()'>&times;</button>";n.appendChild(d)}
-async function load(){const d=await (await fetch('/wifi.json')).json();max=d.maxNetworks;
+async function getState(){return (await fetch('/wifi.json')).json()}
+// The form is filled once on page load and after a successful save; the
+// periodic refresh only touches the status line, so typing is never lost.
+async function loadForm(){const d=await getState();max=d.maxNetworks;
 document.getElementById('max').textContent=max;document.getElementById('builtin').textContent=d.builtinSsid;
 document.getElementById('nets').innerHTML='';d.networks.forEach(n=>addRow(n.ssid));
-document.getElementById('apSsid').value=d.apSsid;
+document.getElementById('apSsid').value=d.apSsid;showStatus(d)}
+async function refreshStatus(){try{showStatus(await getState())}catch(e){}}
+function showStatus(d){
 let s=d.connected?('Connected to <b>'+esc(d.currentSsid)+'</b> ('+d.rssi+' dBm), '+esc(d.ip)):'<b>Not connected</b>';
 if(d.apActive)s+=' &middot; Access point active at '+esc(d.apIp);if(d.pendingConfirm)s+=' &middot; new settings not yet confirmed (auto-rollback in 3 min)';
 document.getElementById('status').innerHTML=s}
 async function save(){const nets=[...document.querySelectorAll('#nets .row')].map(r=>({ssid:r.querySelector('.ssid').value.trim(),password:r.querySelector('.pw').value})).filter(n=>n.ssid);
 const r=await fetch('/wifi',{method:'POST',headers:H,body:JSON.stringify({networks:nets,apSsid:document.getElementById('apSsid').value.trim(),apPassword:document.getElementById('apPassword').value})});
-const d=await r.json();const m=document.getElementById('msg');m.style.color=r.ok?'green':'red';m.textContent=r.ok?'Saved.':(d.error||'Error');if(r.ok){document.getElementById('apPassword').value='';load()}}
+const d=await r.json();const m=document.getElementById('msg');m.style.color=r.ok?'green':'red';m.textContent=r.ok?'Saved.':(d.error||'Error');if(r.ok){document.getElementById('apPassword').value='';loadForm()}}
 async function testAp(){const r=await fetch('/wifi/testap',{method:'POST',headers:H});const m=document.getElementById('msg');m.style.color=r.ok?'green':'red';
-m.textContent=r.ok?'Access point started for 3 minutes. Look for it on your phone.':'Error';setTimeout(load,1500)}
-load();setInterval(load,10000);
+m.textContent=r.ok?'Access point started for 3 minutes. Look for it on your phone.':'Error';setTimeout(refreshStatus,1500)}
+loadForm();setInterval(refreshStatus,10000);
 </script></body></html>)rawliteral";
 #include <time.h>
 
