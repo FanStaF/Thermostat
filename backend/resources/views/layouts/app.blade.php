@@ -121,6 +121,12 @@
             }
 
             document.addEventListener('DOMContentLoaded', () => {
+                // Absolute times are stored/sent in UTC; show them in the
+                // viewer's local timezone.
+                document.querySelectorAll('[data-local-time]').forEach(el => {
+                    const d = new Date(el.dataset.localTime);
+                    if (!isNaN(d)) el.textContent = d.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+                });
                 document.querySelectorAll('[data-ts]').forEach(el => set(el.id, el.dataset.ts));
                 render();
                 setInterval(render, 1000);

@@ -61,13 +61,6 @@ class DeviceHealthTest extends TestCase
         $this->assertSame('Reset button / power glitch', $boots[1]->reason_label);
     }
 
-    public function test_heartbeat_reply_carries_dst_aware_utc_offset(): void
-    {
-        $expected = now()->setTimezone('America/Chicago')->getOffset();
-
-        $this->heartbeat($this->health(1, 10))->assertOk()->assertJson(['utc_offset' => $expected]);
-    }
-
     public function test_invalid_health_is_rejected(): void
     {
         $this->heartbeat(['rssi' => 50])->assertStatus(422);

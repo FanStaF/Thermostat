@@ -105,19 +105,6 @@ class Device extends Authenticatable
         return $this->hasMany(DeviceBoot::class);
     }
 
-    /**
-     * Seconds east of UTC for the device's configured timezone right now
-     * (DST-aware). Sent to the firmware so its logs show local time.
-     */
-    public function utcOffsetSeconds(): int
-    {
-        try {
-            return now()->setTimezone($this->settings?->timezone ?: 'UTC')->getOffset();
-        } catch (\Throwable) {
-            return 0;
-        }
-    }
-
     public function temperatureReadings(): HasMany
     {
         return $this->hasMany(TemperatureReading::class);

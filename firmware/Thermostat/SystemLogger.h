@@ -25,18 +25,10 @@ public:
   // Entry by age: 0 = oldest, getLogCount()-1 = newest.
   const LogEntry& getLog(size_t i) const;
 
-  // Local-time offset from UTC in seconds, supplied by the server (device
-  // timezone setting) in heartbeat replies, so DST changes are picked up.
-  void setUtcOffset(int32_t seconds) { utcOffset = seconds; utcOffsetKnown = true; }
-  int32_t getUtcOffset() const { return utcOffset; }
-  bool hasUtcOffset() const { return utcOffsetKnown; }
-
 private:
   LogEntry entries[MAX_SYSTEM_LOGS];
   size_t head;   // index where the next entry will be written
   size_t count;
-  int32_t utcOffset = 0;
-  bool utcOffsetKnown = false;
 };
 
 // Global instance declaration

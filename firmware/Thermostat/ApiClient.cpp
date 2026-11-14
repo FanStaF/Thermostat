@@ -163,13 +163,7 @@ bool ApiClient::sendHeartbeat(bool sensorFault, long secondsSinceGoodReading) {
   String endpoint = "/api/devices/" + String(deviceId) + "/heartbeat";
 
   bool ok = makePostRequest(endpoint, jsonPayload, response);
-  if (ok) {
-    notePendingCommands(response);
-    JsonDocument reply;
-    if (!deserializeJson(reply, response) && reply["utc_offset"].is<int>()) {
-      logger.setUtcOffset(reply["utc_offset"].as<int>());
-    }
-  }
+  if (ok) notePendingCommands(response);
   return ok;
 }
 

@@ -91,7 +91,7 @@
             <strong>Recent restarts</strong>
             <ul style="margin: 6px 0 0 18px; padding: 0;">
                 @foreach($recentBoots as $boot)
-                    <li>{{ $boot->booted_at->setTimezone($device->settings?->timezone ?: 'UTC')->format('M j, H:i') }}
+                    <li><span data-local-time="{{ $boot->booted_at->toIso8601String() }}">{{ $boot->booted_at->format('M j, H:i') }} UTC</span>
                         &middot; #{{ $boot->boot_count }} &middot; {{ $boot->reason_label }}</li>
                 @endforeach
             </ul>
@@ -928,9 +928,12 @@
                         borderColor = '#2196F3';
                     }
 
-                    // Prefer the firmware's formatted "time" (HH:MM:SS UTC or +1h2m uptime);
-                    // fall back to seconds-since-boot for older firmware.
-                    const timeLabel = log.time ? log.time : `${log.ts}s`;
+                    // Device times are UTC: firmware >= 2.6.2 sends the raw epoch,
+                    // shown here in the browser's local time. Older firmware: its
+                    // formatted "time" (UTC or uptime), else seconds since boot.
+                    const timeLabel = log.epoch
+                        ? new Date(log.epoch * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})
+                        : (log.time ? log.time : `${log.ts}s`);
                     html += `<div style="background: #252526; padding: 6px 8px; margin: 2px 0; border-radius: 3px; border-left: 3px solid ${borderColor}; color: ${color};">`;
                     html += `<span style="color: #888;">[${escapeHtml(timeLabel)}]</span> ${escapeHtml(log.msg)}`;
                     html += `</div>`;

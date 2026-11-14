@@ -50,11 +50,10 @@ loadForm();setInterval(refreshStatus,10000);
 // synced, or a compact uptime like "+1h23m" / "+5m25s" / "+12s" before that.
 static String formatLogTime(const LogEntry& entry) {
   if (entry.epoch >= 1000000000) {
-    // Shown in the device's local time once the server has told us the
-    // offset (heartbeat reply); UTC until then.
+    // The device keeps UTC; browsers convert to their own local time
+    // (see the data-epoch script on /logs and the epoch field in logs.json).
     struct tm tinfo;
-    time_t local = entry.epoch + logger.getUtcOffset();
-    gmtime_r(&local, &tinfo);
+    gmtime_r(&entry.epoch, &tinfo);
     char buf[12];
     snprintf(buf, sizeof(buf), "%02d:%02d:%02d",
              tinfo.tm_hour, tinfo.tm_min, tinfo.tm_sec);
@@ -521,11 +520,16 @@ void WebInterface::handleLogs() {
     else if (msg.indexOf("command") >= 0 || msg.indexOf("Command") >= 0) logClass = "log cmd";
 
     // Log text can contain request arguments — always escape it.
-    server.sendContent(String("<div class='") + logClass + "'>[" + formatLogTime(entry) + "] " +
+    server.sendContent(String("<div class='") + logClass + "'>[<span" +
+                       (entry.epoch >= 1000000000 ? " data-epoch='" + String((unsigned long)entry.epoch) + "'" : "") +
+                       ">" + formatLogTime(entry) + "</span>] " +
                        htmlEscape(msg) + "</div>");
     if (((i - startIdx) & 0x0F) == 0) yield(); // feed watchdog every 16 entries
   }
 
+  // Device times are UTC; show them in the viewer's local time.
+  server.sendContent_P(PSTR("<script>document.querySelectorAll('[data-epoch]').forEach(e=>{"
+    "e.textContent=new Date(e.dataset.epoch*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})})</script>"));
   server.sendContent_P(PSTR("</body></html>"));
   server.sendContent("");
 }
@@ -558,7 +562,10 @@ void WebInterface::handleLogsJson() {
 
     JsonDocument doc;
     doc["ts"] = entry.timestamp / 1000;
-    doc["time"] = formatLogTime(entry);
+    doc["time"] = formatLogTime(entry);  // HH:MM:SS UTC, or uptime before NTP
+    // UTC seconds for clients to show in their own timezone (null pre-NTP).
+    if (entry.epoch >= 1000000000) doc["epoch"] = (unsigned long)entry.epoch;
+    else doc["epoch"] = nullptr;
     doc["msg"] = entry.message;
     // Note: serializeJson(doc, String&) replaces the string's contents, so
     // the separator must be sent on its own.

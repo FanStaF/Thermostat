@@ -163,7 +163,6 @@ class DeviceController extends Controller
         return response()->json([
             'message' => 'Heartbeat updated',
             'pending_commands' => $device->pendingCommandCount(),
-            'utc_offset' => $device->utcOffsetSeconds(),
         ]);
     }
 
