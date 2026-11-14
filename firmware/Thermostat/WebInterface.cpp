@@ -99,6 +99,9 @@ void WebInterface::begin() {
   server.on("/logs", HTTP_GET, [this]() { this->handleLogs(); });
   server.on("/logs.json", HTTP_GET, [this]() { this->handleLogsJson(); });
   server.on("/data", HTTP_GET, [this]() { this->handleData(); });
+  server.on("/sensordiag", HTTP_GET, [this]() {
+    server.send(200, "application/json", tempManager.diagnostics());
+  });
 
   // State-changing actions: POST + custom header only. A custom header can't
   // be sent cross-origin without a CORS preflight (which we never approve),

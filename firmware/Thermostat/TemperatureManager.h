@@ -37,6 +37,10 @@ public:
   // Call after the log file is deleted externally (e.g. "Clear Data").
   void onLogCleared() { logFileSize = 0; }
 
+  // Bus diagnostics as JSON (blocks ~1s for one conversion). Aborts any
+  // in-progress reading; the loop simply starts a new one.
+  String diagnostics();
+
   // NAN until the first successful read.
   float getCurrentTemp() const { return currentTemp; }
   bool hasValidTemp() const { return !isnan(currentTemp); }

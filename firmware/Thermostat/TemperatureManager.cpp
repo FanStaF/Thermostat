@@ -109,6 +109,52 @@ bool TemperatureManager::poll(TempReadResult& out) {
   return false;
 }
 
+String TemperatureManager::diagnostics() {
+  state = IDLE;
+  String out = "{";
+
+  // 1. Raw bus presence pulse: does anything answer a reset at all?
+  bool presence = oneWire.reset();
+  out += "\"presencePulse\":" + String(presence ? "true" : "false");
+
+  // 2. Fresh enumeration.
+  rescanBus();
+  uint8_t count = sensors.getDeviceCount();
+  out += ",\"devicesFound\":" + String(count);
+  out += ",\"parasitePower\":" + String(sensors.isParasitePowerMode() ? "true" : "false");
+  out += ",\"resolution\":" + String(sensors.getResolution());
+  out += ",\"conversionMs\":" + String(conversionMs);
+
+  DeviceAddress addr;
+  if (count > 0 && sensors.getAddress(addr, 0)) {
+    char hex[24];
+    snprintf(hex, sizeof(hex), "%02X%02X%02X%02X%02X%02X%02X%02X",
+             addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
+    out += ",\"address\":\"" + String(hex) + "\"";
+    out += ",\"addressCrcOk\":" + String(OneWire::crc8(addr, 7) == addr[7] ? "true" : "false");
+
+    // 3. One blocking conversion, then the raw scratchpad.
+    sensors.setWaitForConversion(true);
+    unsigned long t0 = millis();
+    sensors.requestTemperaturesByAddress(addr);
+    unsigned long convMs = millis() - t0;
+    sensors.setWaitForConversion(false);
+
+    uint8_t sp[9];
+    bool connected = sensors.isConnected(addr, sp);
+    char spHex[32];
+    snprintf(spHex, sizeof(spHex), "%02X%02X%02X%02X%02X%02X%02X%02X%02X",
+             sp[0], sp[1], sp[2], sp[3], sp[4], sp[5], sp[6], sp[7], sp[8]);
+    out += ",\"conversionTookMs\":" + String(convMs);
+    out += ",\"scratchpad\":\"" + String(spHex) + "\"";
+    out += ",\"scratchpadCrcOk\":" + String(OneWire::crc8(sp, 8) == sp[8] ? "true" : "false");
+    out += ",\"connected\":" + String(connected ? "true" : "false");
+    out += ",\"tempC\":" + String(sensors.getTempC(addr), 2);
+  }
+  out += "}";
+  return out;
+}
+
 TempReadResult TemperatureManager::readBlocking() {
   TempReadResult r = {false, 0.0f, 0, "unknown"};
   startReading();
