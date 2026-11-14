@@ -52,6 +52,17 @@
 
 <div class="card">
     <div style="text-align: center; padding: 20px;">
+        @if($device->sensor_fault)
+            <div style="margin-bottom: 15px; padding: 12px; background: #e74c3c; color: #fff; border-radius: 6px; font-weight: bold;">
+                SENSOR FAULT: the device has no valid temperature reading, so AUTO relays are OFF.
+                @if($device->last_good_reading_at)
+                    Last good reading {{ $device->last_good_reading_at->diffForHumans() }}.
+                @else
+                    No good reading since the device started.
+                @endif
+                The temperature below is stale.
+            </div>
+        @endif
         <div style="font-size: 18px; color: #666; margin-bottom: 10px;">Current Temperature</div>
         <div style="font-size: 48px; font-weight: bold; color: #3498db;" id="currentTemp">
             @if($latestReading)
@@ -228,7 +239,7 @@
                 <div>
                     <label style="font-weight: 600; display: block; margin-bottom: 5px;">Update Frequency:</label>
                     <input type="number" id="updateFrequency" value="{{ $device->settings->update_frequency }}"
-                           min="1" max="60"
+                           min="5" max="300"
                            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                     <small style="color: #666;">seconds</small>
                 </div>
@@ -673,8 +684,8 @@
         const useFahrenheit = document.getElementById('useFahrenheit').value === '1';
         const timezone = document.getElementById('timezone').value;
 
-        if (isNaN(updateFrequency) || updateFrequency < 1 || updateFrequency > 60) {
-            showMessage('Update frequency must be between 1 and 60 seconds', true);
+        if (isNaN(updateFrequency) || updateFrequency < 5 || updateFrequency > 300) {
+            showMessage('Update frequency must be between 5 and 300 seconds', true);
             return;
         }
 

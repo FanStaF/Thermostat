@@ -18,10 +18,14 @@ class Device extends Authenticatable
         'mac_address',
         'firmware_version',
         'last_seen_at',
+        'sensor_fault',
+        'last_good_reading_at',
     ];
 
     protected $casts = [
         'last_seen_at' => 'datetime',
+        'sensor_fault' => 'boolean',
+        'last_good_reading_at' => 'datetime',
     ];
 
     /**

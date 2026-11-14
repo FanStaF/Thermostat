@@ -11,6 +11,10 @@
 #include "ConfigManager.h"
 #include "ApiClient.h"
 
+// Required on every state-changing request (see WebInterface::begin).
+#define CSRF_HEADER "X-Requested-With"
+#define CSRF_VALUE "thermostat"
+
 class WebInterface {
 public:
   WebInterface(TemperatureManager& tempMgr, RelayController& relayCtrl,
@@ -40,6 +44,10 @@ private:
   void handleLogs();
   void handleLogsJson();
   void handleData();
+
+  bool checkCsrf();
+  void sendError(const String& message);
+  bool parseRelayArg(int& relay);
 
 };
 

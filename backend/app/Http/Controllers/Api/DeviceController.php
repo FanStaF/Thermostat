@@ -64,10 +64,29 @@ class DeviceController extends Controller
      */
     public function heartbeat(Request $request, Device $device)
     {
-        $device->update([
-            'last_seen_at' => now(),
-            'ip_address' => $request->ip_address ?? $device->ip_address,
+        $validated = $request->validate([
+            'ip_address' => 'nullable|ip',
+            'firmware_version' => 'nullable|string|max:50',
+            'sensor_fault' => 'nullable|boolean',
+            'seconds_since_good_reading' => 'nullable|integer|min:0',
         ]);
+
+        $update = [
+            'last_seen_at' => now(),
+            'ip_address' => $validated['ip_address'] ?? $device->ip_address,
+        ];
+        if (!empty($validated['firmware_version'])) {
+            $update['firmware_version'] = $validated['firmware_version'];
+        }
+        // Older firmware doesn't send these; leave the stored values alone.
+        if ($request->has('sensor_fault')) {
+            $update['sensor_fault'] = (bool) $validated['sensor_fault'];
+        }
+        if (isset($validated['seconds_since_good_reading'])) {
+            $update['last_good_reading_at'] = now()->subSeconds($validated['seconds_since_good_reading']);
+        }
+
+        $device->update($update);
 
         return response()->json(['message' => 'Heartbeat updated']);
     }
@@ -163,7 +182,7 @@ class DeviceController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'update_frequency' => 'nullable|integer|min:1|max:60',
+            'update_frequency' => 'nullable|integer|min:5|max:300',
             'use_fahrenheit' => 'nullable|boolean',
             'timezone' => 'nullable|string|max:50',
         ]);

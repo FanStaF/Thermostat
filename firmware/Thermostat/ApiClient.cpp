@@ -116,13 +116,17 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
   return false;
 }
 
-bool ApiClient::sendHeartbeat() {
+bool ApiClient::sendHeartbeat(bool sensorFault, long secondsSinceGoodReading) {
   if (deviceId <= 0) {
     return false;
   }
 
   JsonDocument doc;
   doc["ip_address"] = WiFi.localIP().toString();
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["sensor_fault"] = sensorFault;
+  if (secondsSinceGoodReading >= 0) doc["seconds_since_good_reading"] = secondsSinceGoodReading;
+  else doc["seconds_since_good_reading"] = nullptr;
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);

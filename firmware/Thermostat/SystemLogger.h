@@ -3,7 +3,6 @@
 
 #include <Arduino.h>
 #include <time.h>
-#include <vector>
 #include "Config.h"
 
 struct LogEntry {
@@ -12,16 +11,24 @@ struct LogEntry {
   time_t epoch;            // UTC unix time, or 0 if NTP not synced yet
 };
 
+// Fixed-capacity ring buffer. Storage is allocated once (as a static array),
+// adding a log never shifts entries, and messages are length-capped so the
+// worst-case heap use is bounded (~MAX_SYSTEM_LOGS * MAX_LOG_MESSAGE_LEN).
 class SystemLogger {
 public:
   SystemLogger();
 
-  void addLog(String message);
-  const std::vector<LogEntry>& getLogs() const;
-  size_t getLogCount() const;
+  void addLog(const String& message);
+
+  // Number of stored entries (<= MAX_SYSTEM_LOGS).
+  size_t getLogCount() const { return count; }
+  // Entry by age: 0 = oldest, getLogCount()-1 = newest.
+  const LogEntry& getLog(size_t i) const;
 
 private:
-  std::vector<LogEntry> logs;
+  LogEntry entries[MAX_SYSTEM_LOGS];
+  size_t head;   // index where the next entry will be written
+  size_t count;
 };
 
 // Global instance declaration
