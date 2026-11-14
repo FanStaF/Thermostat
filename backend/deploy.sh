@@ -70,8 +70,13 @@ php artisan view:cache
 
 # Set proper permissions
 echo "🔒 Setting permissions..."
-chmod -R 755 storage bootstrap/cache
-chmod -R 775 storage/logs
+# Directories only, plus non-executable files. A blanket `chmod -R 755` also
+# marks the tracked .gitignore files executable, which git reports as
+# modified after every deploy.
+find storage bootstrap/cache -type d -exec chmod 755 {} +
+find storage bootstrap/cache -type f -exec chmod 644 {} +
+find storage/logs -type d -exec chmod 775 {} +
+find storage/logs -type f -exec chmod 664 {} +
 
 echo "✅ Disabling maintenance mode..."
 # (the EXIT trap runs `php artisan up`)
