@@ -528,21 +528,23 @@
                 // Update relay states
                 if (data.relays) {
                     data.relays.forEach(relay => {
+                        // Laravel serializes the currentState relation as
+                        // snake_case "current_state", and as a list (it's a
+                        // HasMany limited to 1).
+                        const cs = Array.isArray(relay.current_state) ? relay.current_state[0] : relay.current_state;
                         const stateBadge = document.getElementById(`state-${relay.relay_number}`);
-                        if (stateBadge && relay.currentState) {
-                            stateBadge.textContent = relay.currentState.state ? 'ON' : 'OFF';
-                            stateBadge.className = `relay-badge ${relay.currentState.state ? 'on' : 'off'}`;
+                        if (!stateBadge || !cs) return;
 
-                            // Update mode buttons
-                            const card = document.querySelector(`[data-relay-number="${relay.relay_number}"]`);
-                            if (card) {
-                                card.querySelectorAll('.mode-btn').forEach(btn => {
-                                    btn.classList.remove('active');
-                                    if (btn.dataset.mode === relay.currentState.mode) {
-                                        btn.classList.add('active');
-                                    }
-                                });
-                            }
+                        stateBadge.textContent = cs.state ? 'ON' : 'OFF';
+                        stateBadge.className = `relay-badge ${cs.state ? 'on' : 'off'}`;
+
+                        const card = document.querySelector(`[data-relay-number="${relay.relay_number}"]`);
+                        if (card) {
+                            card.querySelectorAll('.mode-btn').forEach(btn => {
+                                btn.classList.toggle('active', btn.dataset.mode === cs.mode);
+                            });
+                            const modeBadge = card.querySelector('.mode-badge');  // viewers
+                            if (modeBadge) modeBadge.textContent = cs.mode;
                         }
                     });
                 }

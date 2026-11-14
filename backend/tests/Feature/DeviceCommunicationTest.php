@@ -147,6 +147,22 @@ class DeviceCommunicationTest extends TestCase
         $this->assertNotSame($first['version'], $afterReading['version']);
     }
 
+    public function test_dashboard_data_relay_shape_matches_page_script(): void
+    {
+        // show.blade.php's refreshData() reads relays[].current_state[0].
+        $this->withToken($this->token)->postJson("/api/devices/{$this->device->id}/relay-state", [
+            'relay_number' => 1, 'state' => true, 'mode' => 'MANUAL_ON', 'temp_on' => 20, 'temp_off' => 22,
+        ])->assertSuccessful();
+        $this->app['auth']->forgetGuards();
+
+        $relay = $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson("/devices/{$this->device->id}/dashboard-data")->json('relays.0');
+
+        $this->assertSame(1, $relay['relay_number']);
+        $this->assertTrue((bool) $relay['current_state'][0]['state']);
+        $this->assertSame('MANUAL_ON', $relay['current_state'][0]['mode']);
+    }
+
     public function test_summary_lists_only_accessible_devices(): void
     {
         Device::create(['name' => 'other', 'hostname' => 'other', 'mac_address' => '22:22:22:22:22:22']);
