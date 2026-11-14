@@ -52,17 +52,9 @@
 
 <div class="card">
     <div style="text-align: center; padding: 20px;">
-        @if($device->sensor_fault)
-            <div style="margin-bottom: 15px; padding: 12px; background: #e74c3c; color: #fff; border-radius: 6px; font-weight: bold;">
-                SENSOR FAULT: the device has no valid temperature reading, so AUTO relays are OFF.
-                @if($device->last_good_reading_at)
-                    Last good reading {{ $device->last_good_reading_at->diffForHumans() }}.
-                @else
-                    No good reading since the device started.
-                @endif
-                The temperature below is stale.
-            </div>
-        @endif
+        {{-- Always rendered so refreshData() can show/hide it live. --}}
+        <div id="sensorFaultBanner"
+             style="margin-bottom: 15px; padding: 12px; background: #e74c3c; color: #fff; border-radius: 6px; font-weight: bold; {{ $device->has_active_sensor_fault ? '' : 'display: none;' }}">{{ $device->sensor_fault_message }}</div>
         <div style="font-size: 18px; color: #666; margin-bottom: 10px;">Current Temperature</div>
         <div style="font-size: 48px; font-weight: bold; color: #3498db;" id="currentTemp">
             @if($latestReading)
@@ -471,6 +463,13 @@
 
                 const data = await response.json();
 
+                // Sensor fault banner
+                const faultBanner = document.getElementById('sensorFaultBanner');
+                if (faultBanner) {
+                    faultBanner.style.display = data.sensorFault ? '' : 'none';
+                    faultBanner.textContent = data.sensorFaultMessage || '';
+                }
+
                 // Update temperature display
                 if (data.latestReading) {
                     let temp = parseFloat(data.latestReading.temperature);
@@ -702,7 +701,13 @@
                 timezone: timezone
             })
         })
-        .then(response => response.json())
+        .then(response => response.json().then(data => {
+            if (!response.ok) {
+                const errors = data.errors ? Object.values(data.errors).flat().join(' ') : (data.error || `HTTP ${response.status}`);
+                throw new Error(errors);
+            }
+            return data;
+        }))
         .then(data => {
             showMessage('Settings updated successfully! Sending commands to device...');
 

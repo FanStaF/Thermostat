@@ -39,6 +39,32 @@ class Device extends Authenticatable
             && $this->last_seen_at->isAfter(now()->subMinutes(5));
     }
 
+    /**
+     * A reported sensor fault only counts while the device is online: the flag
+     * is cleared by the next heartbeat, so an offline device's last report is
+     * stale and must not keep the fault banner/alert alive.
+     */
+    public function getHasActiveSensorFaultAttribute(): bool
+    {
+        return $this->sensor_fault && $this->is_online;
+    }
+
+    /**
+     * Human-readable sensor fault description for the dashboard.
+     */
+    public function getSensorFaultMessageAttribute(): ?string
+    {
+        if (!$this->has_active_sensor_fault) {
+            return null;
+        }
+        $since = $this->last_good_reading_at
+            ? 'Last good reading ' . $this->last_good_reading_at->diffForHumans() . '.'
+            : 'No good reading since the device started.';
+
+        return 'SENSOR FAULT: the device has no valid temperature reading, so AUTO relays are OFF. '
+            . $since . ' The temperature shown is stale.';
+    }
+
     public function temperatureReadings(): HasMany
     {
         return $this->hasMany(TemperatureReading::class);

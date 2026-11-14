@@ -14,8 +14,13 @@
                 <div class="device-card">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
                         <div class="device-name">{{ $device->name }}</div>
-                        <span class="status {{ $device->is_online ? 'online' : 'offline' }}">
-                            {{ $device->is_online ? 'Online' : 'Offline' }}
+                        <span>
+                            @if($device->has_active_sensor_fault)
+                                <span class="status offline" title="{{ $device->sensor_fault_message }}">Sensor fault</span>
+                            @endif
+                            <span class="status {{ $device->is_online ? 'online' : 'offline' }}">
+                                {{ $device->is_online ? 'Online' : 'Offline' }}
+                            </span>
                         </span>
                     </div>
 

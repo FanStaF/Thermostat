@@ -9,6 +9,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // MySQL-only syntax. SQLite (test suite) stores enums as plain strings
+        // with a CHECK constraint; skip there so `php artisan test` can migrate.
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         // Modify enum to include set_relay_type
         DB::statement("ALTER TABLE device_commands MODIFY COLUMN type ENUM('set_relay_mode', 'set_relay_type', 'set_thresholds', 'set_frequency', 'set_unit', 'restart')");
     }

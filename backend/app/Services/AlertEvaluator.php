@@ -129,6 +129,24 @@ class AlertEvaluator
         $devices = $this->getDevicesToCheck($sub);
 
         foreach ($devices as $device) {
+            // Firmware-reported fault: immediate, no need to wait for a gap
+            // in readings (the device stops posting temps but may not for a
+            // while, and AUTO relays are already forced OFF).
+            if ($device->has_active_sensor_fault) {
+                $since = $device->last_good_reading_at;
+                return [
+                    'triggered' => true,
+                    'device_id' => $device->id,
+                    'message' => "Temperature sensor fault on {$device->name}: AUTO relays are OFF"
+                        . ($since ? " (last good reading {$since->diffForHumans()})" : ' (no good reading since boot)'),
+                    'metadata' => [
+                        'device_name' => $device->name,
+                        'sensor_fault' => true,
+                        'last_good_reading' => $since?->toIso8601String(),
+                    ],
+                ];
+            }
+
             $lastReading = $device->temperatureReadings()
                 ->latest('recorded_at')
                 ->first();

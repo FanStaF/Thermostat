@@ -35,6 +35,11 @@ class DeviceController extends Controller
                 'firmware_version' => $request->firmware_version,
                 'name' => $request->name ?? $request->hostname,
                 'last_seen_at' => now(),
+                // The device re-registers on every boot; any fault reported
+                // before the reboot is stale. The first heartbeat (seconds
+                // after registering) reports the current state.
+                'sensor_fault' => false,
+                'last_good_reading_at' => null,
             ]
         );
 
@@ -64,26 +69,39 @@ class DeviceController extends Controller
      */
     public function heartbeat(Request $request, Device $device)
     {
-        $validated = $request->validate([
+        $validator = Validator::make($request->all(), [
             'ip_address' => 'nullable|ip',
             'firmware_version' => 'nullable|string|max:50',
             'sensor_fault' => 'nullable|boolean',
-            'seconds_since_good_reading' => 'nullable|integer|min:0',
+            // Capped at the firmware's millis() wrap (~49.7 days) so the
+            // derived timestamp always fits the TIMESTAMP column.
+            'seconds_since_good_reading' => 'nullable|integer|min:0|max:4294967',
         ]);
 
-        $update = [
-            'last_seen_at' => now(),
-            'ip_address' => $validated['ip_address'] ?? $device->ip_address,
-        ];
-        if (!empty($validated['firmware_version'])) {
-            $update['firmware_version'] = $validated['firmware_version'];
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
         }
-        // Older firmware doesn't send these; leave the stored values alone.
-        if ($request->has('sensor_fault')) {
+
+        $validated = $validator->validated();
+        $update = ['last_seen_at' => now()];
+
+        // Plain fields: update only when sent with a value.
+        foreach (['ip_address', 'firmware_version'] as $field) {
+            if (isset($validated[$field]) && $validated[$field] !== '') {
+                $update[$field] = $validated[$field];
+            }
+        }
+
+        // Fault fields (firmware >= 2.2.0; older firmware omits them, which
+        // leaves the stored values alone). sensor_fault: null is ignored.
+        // seconds_since_good_reading: an explicit null means "no good reading
+        // since boot" and clears the timestamp.
+        if (isset($validated['sensor_fault'])) {
             $update['sensor_fault'] = (bool) $validated['sensor_fault'];
         }
-        if (isset($validated['seconds_since_good_reading'])) {
-            $update['last_good_reading_at'] = now()->subSeconds($validated['seconds_since_good_reading']);
+        if (array_key_exists('seconds_since_good_reading', $validated)) {
+            $seconds = $validated['seconds_since_good_reading'];
+            $update['last_good_reading_at'] = $seconds === null ? null : now()->subSeconds((int) $seconds);
         }
 
         $device->update($update);
@@ -161,6 +179,8 @@ class DeviceController extends Controller
         return response()->json([
             'latestReading' => $device->temperatureReadings->first(),
             'relays' => $device->relays,
+            'sensorFault' => $device->has_active_sensor_fault,
+            'sensorFaultMessage' => $device->sensor_fault_message,
         ]);
     }
 
