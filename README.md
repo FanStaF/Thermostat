@@ -15,13 +15,20 @@ Thermostat/
 │   ├── RelayController.*  # Relay control with type-aware logic
 │   ├── ConfigManager.*    # Settings persistence (LittleFS)
 │   ├── WebInterface.*     # Local web UI
-│   └── ApiClient.*        # Laravel backend communication
+│   ├── NetManager.*       # WiFi networks, fallback access point, captive portal
+│   ├── ApiClient.*        # Backend communication + reading outbox
+│   └── build.sh / upload.sh
 ├── backend/               # Laravel backend (PHP)
 │   ├── app/
 │   ├── database/
 │   ├── routes/
-│   └── resources/views/
+│   ├── resources/views/
+│   ├── tests/
+│   └── deploy.sh          # Production deploy (Hostinger)
+├── .github/workflows/     # CI (tests + firmware build) and manual deploy
 └── README.md              # This file
+
+See `firmware/README.md` for firmware details and `DEPLOYMENT.md` for production.
 ```
 
 ## Features
@@ -29,25 +36,25 @@ Thermostat/
 ### Firmware
 - 4 independent relay controllers
 - **Relay types**: HEATING, COOLING, GENERIC, MANUAL_ONLY
-- AUTO mode with hysteresis and type-aware temperature logic
+- AUTO mode with hysteresis, type-aware logic and a 2-minute minimum on/off time
 - MANUAL ON/OFF modes
-- Local web interface (works offline)
-- Temperature logging to LittleFS
-- Real-time temperature charts
-- Celsius/Fahrenheit support
-- OTA firmware updates
-- Persistent settings
-- System logs with filtering and pagination
-- API client for backend communication
+- **Sensor fail-safe**: AUTO relays turn OFF when the sensor stops giving valid readings
+- **Readings outbox**: readings queued on flash with timestamps, uploaded in batches, purged once confirmed
+- **WiFi fallbacks**: up to 5 saved networks, rollback, own access point + captive portal
+- Device health reporting (restarts and reasons, WiFi signal, memory, upload backlog)
+- Local web interface (works offline) with a sensor diagnostics page
+- Password-protected OTA firmware updates
+- All times stored in UTC, shown in the browser's local time
 
 ### Backend (Laravel)
-- Device registration and authentication
-- Temperature data storage and history
-- Remote relay control via command queue
-- Dashboard with real-time charts
-- Device logs viewer (fetches from device)
-- Email reports with relay activity statistics
-- Alert notifications for temperature thresholds
+- Device registration and token authentication (re-registration requires the device's token or admin approval)
+- Temperature history with batched, timestamped, idempotent uploads
+- Remote relay control via command queue (devices are told in each reply when commands are waiting)
+- Dashboard that refreshes at the device's update interval and only when data changed; live "last seen" timers
+- Sensor-fault banner and Device Health panel
+- Device logs viewer (fetched from the device by the browser)
+- Email reports and alerts (incl. immediate sensor-fault alerts)
+- Per-user device access, login rate limiting
 - Multi-device support
 
 ## Hardware
@@ -110,7 +117,7 @@ php artisan serve
 │   Thermostat    │◄──── Local Network (Direct Access)
 │                 │
 └────────┬────────┘
-         │ HTTPS REST API
+         │ HTTP REST API (see "HTTPS" in firmware/README.md)
          │
 ┌────────▼────────┐
 │   Laravel       │
@@ -126,29 +133,35 @@ php artisan serve
 
 ## API Endpoints
 
-### Device → Backend
-- `POST /api/devices/register` - Register device, get auth token
-- `POST /api/devices/{id}/heartbeat` - Keep-alive signal
-- `POST /api/devices/{id}/temperature` - Send temperature reading
-- `POST /api/devices/{id}/relay-state` - Send relay state update
-- `GET /api/devices/{id}/commands/pending` - Poll for commands
-- `PUT /api/devices/{id}/commands/{cmd}` - Acknowledge command
+### Device → Backend (device token, scoped to its own device)
+- `POST /api/devices/register` - Register (API key; existing devices must also present their current token)
+- `POST /api/devices/{id}/heartbeat` - Keep-alive + sensor fault + health; reply includes `pending_commands`
+- `POST /api/devices/{id}/temperature/batch` - Up to 100 readings with device timestamps (idempotent)
+- `POST /api/devices/{id}/temperature` - Single reading (older firmware)
+- `POST /api/devices/{id}/relay-state` - Relay state update
+- `GET /api/devices/{id}/commands/pending` - Fetch commands
+- `PUT /api/devices/{id}/commands/{cmd}` - Report command status
 
-### Dashboard → Backend
-- `GET /dashboard` - Device list
-- `GET /dashboard/{id}` - Device detail with charts
-- `POST /api/devices/{id}/commands` - Queue command for device
-- `PUT /api/relays/{id}` - Update relay settings
+### Dashboard (web session)
+- `GET /` - Device list; `GET /dashboard/summary` - its live-refresh data
+- `GET /devices/{id}` - Device detail; `GET /devices/{id}/dashboard-data` - its live-refresh data
+- `POST /devices/{id}/commands` - Queue a command for the device
+- `PATCH /devices/{id}/settings` - Update interval (5–300 s), unit, timezone
+- `POST /devices/{id}/allow-reregistration` - Admin: let a device that lost its token register once
+
+The user-facing `/api` routes accept user tokens only (device tokens are rejected).
 
 ## Configuration
 
-### Firmware (`Credentials.h`)
+### Firmware (`Credentials.h`, gitignored)
 ```cpp
 #define WIFI_SSID "your-wifi"
 #define WIFI_PASSWORD "your-password"
-#define API_URL "https://your-server.com"
+#define API_URL "http://your-server.com"
 #define API_KEY "your-api-key"
+#define OTA_PASSWORD "long-random-value"   // required
 ```
+Additional WiFi networks and the fallback access point are configured on the device at `/wifi`.
 
 ### Backend (`.env`)
 ```env
@@ -163,9 +176,9 @@ MAIL_MAILER=smtp
 ### Firmware
 ```bash
 cd firmware/Thermostat
-# Make changes
-arduino-cli compile --fqbn esp8266:esp8266:d1_mini_clone .
-arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port <ip-or-port> .
+./build.sh               # compile
+./upload.sh              # compile + OTA upload to the board named "thermostat"
+./upload.sh <ip>         # OTA to a specific address; ./upload.sh usb for USB
 ```
 
 ### Backend
@@ -173,10 +186,37 @@ arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port <ip-or-port> .
 cd backend
 php artisan serve        # Start dev server
 php artisan migrate      # Run migrations
-php artisan test         # Run tests
+php artisan test         # Run tests (SQLite in memory)
 ```
 
+### CI
+Every push and pull request runs the backend tests and compiles the firmware
+(`.github/workflows/ci.yml`). Deployment is manual (see `DEPLOYMENT.md`).
+
 ## Changelog
+
+### Firmware v2.2 – v2.6 (November 2026)
+- **Robustness:** sensor fail-safe; no invented temperatures; 85 °C power-on value rejected;
+  validated thresholds/modes/config; atomic settings writes; capped temperature log; fixed-size
+  log buffer; non-blocking sensor reads; sensor read by cached address with CRC retries;
+  registration retries; 2-minute relay minimum on/off time
+- **Communication:** reading outbox with batched, timestamped uploads; commands signalled in
+  server replies; device health and sensor fault in heartbeats; re-registration requires the
+  device token
+- **Recovery:** up to 5 WiFi networks, settings rollback, fallback access point with captive
+  portal, `/sensordiag`
+- **Security:** POST + custom header for local controls, escaped log output, required OTA password
+- Times kept in UTC and shown in the browser's local time
+
+### Backend (November 2026)
+- Security fixes from a full review: registration takeover, device tokens on the user API,
+  alert subscriptions vs. device access, stored XSS in the log panel, login throttling
+- Batch temperature endpoint, pending-command signalling, optional `API_REQUIRE_HTTPS`
+- Live dashboard refresh (follows the device's update interval), sensor-fault banner,
+  Device Health panel with restart history
+- Fixes: alert check memory use, summary schedule times, missing device settings,
+  relay on-time drift, live relay badges
+- `deploy.sh` works without `proc_open`; CI workflow; test suite (39 tests)
 
 ### v2.1.0 - Relay Types & Logging Improvements
 - Added relay types (HEATING, COOLING, GENERIC, MANUAL_ONLY)

@@ -34,7 +34,7 @@ class DeviceHealthTest extends TestCase
     {
         return [
             'boot_count' => $boot, 'reset_reason' => $reason, 'uptime_s' => $uptime,
-            'wifi_ssid' => 'LOTR-GL', 'rssi' => -61, 'free_heap' => 22000,
+            'wifi_ssid' => 'home-wifi', 'rssi' => -61, 'free_heap' => 22000,
             'max_free_block' => 19000, 'heap_frag' => 12, 'outbox_bytes' => 0,
         ];
     }

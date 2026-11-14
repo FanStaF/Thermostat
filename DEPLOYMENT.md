@@ -2,6 +2,16 @@
 
 This guide covers deploying the Thermostat Monitor application to Hostinger (lotr.lindstromsontheroad.com).
 
+> **Current production layout:** the repository is checked out at
+> `/home/u613295236/public_html/Thermostat`, and the Laravel app (and `deploy.sh`) lives in its
+> `backend/` folder. Paths in the initial-setup steps below are from the original setup; use
+> `backend/deploy.sh` as the source of truth for the live path.
+>
+> **Hostinger's PHP has `proc_open` disabled.** Anything that makes PHP spawn a subprocess
+> fails with "The Process class relies on proc_open". In particular, Composer's own scripts
+> (`post-autoload-dump` → `package:discover`) fail, so `deploy.sh` runs Composer with
+> `--no-scripts` and calls `php artisan package:discover` itself.
+
 ## Prerequisites
 
 - Hostinger hosting account with SSH access
@@ -150,21 +160,19 @@ chmod +x deploy.sh
 
 ## Step 4: Test Deployment
 
-### 4.1 Manual deployment test
+### 4.1 Run a deployment
 
-On your local machine:
-```bash
-git checkout main
-git push origin main
-```
+Deployment is **manual**. Pushing to `main` only runs CI (backend tests + firmware build);
+it does not deploy. Either:
 
-This will trigger GitHub Actions automatically.
+- GitHub → **Actions** → **Deploy to Hostinger** → **Run workflow**, or
+- on the server: see "Manual deployment" under Maintenance.
 
 ### 4.2 Monitor deployment
 
 1. Go to GitHub repository → **Actions** tab
-2. Watch the deployment progress
-3. Check for any errors
+2. Check that **CI** passed for the commit you are deploying
+3. Watch the deployment progress and check for errors
 
 ### 4.3 Verify deployment
 
@@ -179,17 +187,25 @@ You should see the login page.
 Edit `firmware/Thermostat/Credentials.h`:
 
 ```cpp
-#define API_URL "https://lotr.lindstromsontheroad.com"
+#define API_URL "http://lotr.lindstromsontheroad.com"   // ESP8266 can't do HTTPS here, see firmware/README.md
 #define API_KEY "your_production_api_key_from_env"
+#define OTA_PASSWORD "long-random-value"
 ```
 
 ### 5.2 Compile and upload firmware
 
 ```bash
 cd firmware/Thermostat
-arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 .
-arduino-cli upload -p /dev/ttyUSB0 --fqbn esp8266:esp8266:nodemcuv2 .
+./upload.sh usb /dev/ttyUSB0   # first flash
+./upload.sh                    # later updates over WiFi
 ```
+
+### 5.3 Device registration rules
+
+A new device registers with the API key alone. An **existing** device (same MAC) must present
+its current token to re-register; the firmware does this automatically. If a device lost its
+stored token (for example after a full flash erase) and is refused, an admin clicks **Allow
+re-registration** on its device page; this works once.
 
 ## Troubleshooting
 
@@ -224,12 +240,18 @@ Verify database credentials in cPanel and `.env` match exactly.
 git config --global --add safe.directory /home/u491870959/domains/lotr.lindstromsontheroad.com/public_html
 ```
 
-### Composer errors
+### Composer errors / "relies on proc_open"
 
-Update composer:
+`proc_open` is disabled on Hostinger, so Composer scripts can't run there. `deploy.sh` only
+runs `composer install --no-dev --optimize-autoloader --no-scripts` when `composer.lock`
+changed (it records the lock's hash in `storage/app/.deployed-composer-lock`). If Composer
+itself fails when installing new packages, run `composer install --no-dev` locally and
+upload the `vendor/` folder.
+
+If `vendor/` already matches `composer.lock` (e.g. after a deploy that failed at the
+Composer-scripts step), record that so the next deploy skips Composer:
 ```bash
-composer self-update
-composer install --no-dev --optimize-autoloader
+sha1sum composer.lock | cut -d' ' -f1 > storage/app/.deployed-composer-lock
 ```
 
 ## Maintenance
@@ -252,9 +274,20 @@ php artisan view:clear
 ### Manual deployment
 
 ```bash
-cd /home/u491870959/domains/lotr.lindstromsontheroad.com/public_html
+cd /home/u613295236/public_html/Thermostat/backend
+git fetch origin && git reset --hard origin/main   # picks up the latest deploy.sh too
 bash deploy.sh
 ```
+
+`deploy.sh` puts the site in maintenance mode, pulls `origin/main`, installs Composer
+packages only if `composer.lock` changed, runs migrations, rebuilds caches and fixes
+permissions. If any step fails, it still brings the site back up. Afterwards `git status`
+should be clean.
+
+### Optional: require HTTPS for the device API
+
+Set `API_REQUIRE_HTTPS=true` in `.env` to refuse plain-HTTP device calls. **Only** do this once
+every device's `API_URL` uses `https://`; the current ESP8266 firmware can't, so leave it off.
 
 ### Backup database
 
@@ -269,7 +302,8 @@ From cPanel:
 - [ ] APP_DEBUG=false in production .env
 - [ ] Unique API_KEY generated
 - [ ] Strong database password set
-- [ ] HTTPS enabled (SSL certificate)
+- [ ] HTTPS enabled for the website (SSL certificate)
+- [ ] Each device has a unique OTA_PASSWORD in its Credentials.h
 - [ ] storage/ and bootstrap/cache/ writable
 - [ ] Admin user created with strong password
 - [ ] Regular backups configured
@@ -284,12 +318,10 @@ From cPanel:
 
 ## Future Deployments
 
-After initial setup, deployments are automatic:
-
-1. Make changes locally
-2. Commit and push to main branch
-3. GitHub Actions deploys automatically
-4. Check deployment status in GitHub Actions tab
+1. Make changes locally; run `php artisan test` in `backend/`
+2. Commit and push to `main`. CI runs the tests and builds the firmware.
+3. Once CI is green, deploy manually (Actions → Deploy to Hostinger, or `deploy.sh` on the server)
+4. Firmware changes are flashed separately with `firmware/Thermostat/upload.sh`
 
 ## Support Resources
 

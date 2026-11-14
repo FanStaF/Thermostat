@@ -16,7 +16,7 @@ class DeviceHeartbeatTest extends TestCase
             'name' => 'thermostat',
             'hostname' => 'thermostat',
             'mac_address' => 'AA:BB:CC:DD:EE:FF',
-            'ip_address' => '192.168.8.243',
+            'ip_address' => '192.168.1.50',
             'firmware_version' => '2.1.0',
             'last_seen_at' => now()->subMinutes(30),
         ], $attrs));
@@ -35,11 +35,11 @@ class DeviceHeartbeatTest extends TestCase
     {
         [$device, $token] = $this->makeDevice(['sensor_fault' => true]);
 
-        $this->heartbeat($device, $token, ['ip_address' => '192.168.8.50'])->assertOk();
+        $this->heartbeat($device, $token, ['ip_address' => '192.168.1.50'])->assertOk();
 
         $device->refresh();
         $this->assertTrue($device->sensor_fault);
-        $this->assertSame('192.168.8.50', $device->ip_address);
+        $this->assertSame('192.168.1.50', $device->ip_address);
         $this->assertTrue($device->is_online);
     }
 

@@ -1,221 +1,196 @@
 # ESP8266 Thermostat Firmware
 
-Arduino firmware for the ESP8266-based thermostat controller.
+Arduino firmware for the ESP8266-based thermostat controller (current version: see
+`FIRMWARE_VERSION` in `Config.h`).
 
-## Hardware Requirements
+## Hardware
 
-- **Board:** LOLIN(WEMOS) D1 mini or compatible ESP8266
-- **Sensor:** DS18B20 temperature sensor
+- **Board:** LOLIN(WEMOS) D1 mini clone (ESP8266), FQBN `esp8266:esp8266:d1_mini_clone`
+- **Sensor:** DS18B20 on D2, with a 4.7k pull-up to 3.3V and its own VDD wire (not parasite power)
 - **Relays:** 4x relay module (active-LOW)
-
-### Pin Configuration
+- **Power:** 12V → 5V buck into the D1 mini's 5V pin. Use solid connections (screw terminal or
+  solder); a loose contact here caused brownout resets and sensor dropouts. A 470–1000 µF
+  capacitor across the 5V input helps ride through relay/WiFi current spikes.
 
 | Pin | Function |
 |-----|----------|
 | D1 | Relay 1 |
-| D2 | DS18B20 Data (with 4.7k pull-up) |
+| D2 | DS18B20 data |
 | D5 | Relay 2 |
 | D6 | Relay 3 |
 | D7 | Relay 4 |
 
 ## Features
 
-- **4 Independent Relays** with individual control modes
-- **Relay Types:** HEATING, COOLING, GENERIC, MANUAL_ONLY
-- **Control Modes:** AUTO, MANUAL_ON, MANUAL_OFF
-- **Temperature Monitoring** with DS18B20 sensor
-- **Local Web Interface** (works without internet)
-- **Backend Integration** via REST API
-- **OTA Updates** for remote firmware updates
-- **Persistent Settings** stored in LittleFS
-- **System Logging** with filtering and remote access
+- 4 relays, each with a **type** (HEATING, COOLING, GENERIC, MANUAL_ONLY) and **mode**
+  (AUTO, MANUAL_ON, MANUAL_OFF)
+- AUTO control with hysteresis, plus a **2-minute minimum on/off time** so a relay can't chatter
+- **Sensor fail-safe:** if no good reading for 60 s (≥3 failures in a row), AUTO relays turn
+  OFF; manual modes are untouched. Clears automatically on the next good reading. Hardware
+  override switches, not the firmware, are the force-on path.
+- **Readings outbox:** every reading is queued on flash with its timestamp and uploaded in
+  batches; lines are deleted once the server confirms. Survives outages and reboots (~25 h at a
+  60 s interval)
+- **WiFi fallbacks** (see below): up to 5 saved networks, automatic rollback, and its own access
+  point with a captive portal when no network is available
+- **Device health** in every heartbeat: boot count, reset reason, uptime, WiFi signal, memory,
+  upload backlog
+- Local web interface that works without internet; settings persisted in LittleFS (written
+  atomically)
+- Password-protected OTA updates
+- All timestamps kept in **UTC**; browsers show them in their local time
 
 ## Relay Types
 
-The relay type determines how temperature thresholds are interpreted:
+| Type | ON when | OFF when | Threshold rule |
+|------|---------|----------|----------------|
+| HEATING | temp < ON | temp > OFF | ON must be below OFF |
+| COOLING | temp > ON | temp < OFF | ON must be above OFF |
+| GENERIC | temp > ON | temp < OFF | ON must be above OFF |
+| MANUAL_ONLY | manual only | manual only | — |
 
-### HEATING (e.g., floor heat, space heaters)
-- **ON:** Temperature drops below ON threshold
-- **OFF:** Temperature rises above OFF threshold
-- Example: ON=65°F, OFF=70°F turns on heat when cold
-
-### COOLING (e.g., AC, fans)
-- **ON:** Temperature rises above ON threshold
-- **OFF:** Temperature drops below OFF threshold
-- Example: ON=75°F, OFF=70°F turns on cooling when hot
-
-### GENERIC
-- Same logic as COOLING (ON when temp > threshold)
-
-### MANUAL_ONLY
-- No automatic control, only responds to manual commands
+Thresholds must be between −40 and 80 °C. Changing a relay's type swaps its thresholds if they
+are in the wrong order for the new type.
 
 ## File Structure
 
 ```
 Thermostat/
-├── Thermostat.ino       # Main sketch
-├── Config.h             # Pin definitions, constants
-├── Credentials.h        # WiFi/API credentials (gitignored)
-├── Credentials.h.example # Template for credentials
-├── SystemLogger.h/cpp   # In-memory logging (500 entries)
-├── TemperatureManager.h/cpp # DS18B20 sensor handling
-├── RelayController.h/cpp # Relay logic with type support
-├── ConfigManager.h/cpp  # Settings persistence
-├── WebInterface.h/cpp   # Local web server
-└── ApiClient.h/cpp      # Backend API communication
+├── Thermostat.ino            # Setup, main loop, backend command handling
+├── Config.h                  # Pins, intervals, limits
+├── Credentials.h             # WiFi/API/OTA secrets (gitignored)
+├── Credentials.h.example     # Template
+├── NetManager.h/cpp          # WiFi networks, rollback, fallback AP + captive portal
+├── TemperatureManager.h/cpp  # Non-blocking DS18B20 reads, local history log, diagnostics
+├── RelayController.h/cpp     # Relay logic, validation, hold times, fail-safe
+├── ConfigManager.h/cpp       # Settings persistence
+├── ApiClient.h/cpp           # Backend communication + reading outbox
+├── WebInterface.h/cpp        # Local web server and pages
+├── SystemLogger.h/cpp        # In-memory ring buffer log (120 entries)
+├── FileUtil.h/cpp            # Safe "keep the tail of a file" helper
+├── build.sh / upload.sh      # Build and upload helpers
 ```
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Dependencies
 
-Using Arduino IDE Library Manager or arduino-cli:
+ESP8266 core 3.1.2 and these libraries (the versions CI uses):
 
 ```bash
-arduino-cli lib install "OneWire"
-arduino-cli lib install "DallasTemperature"
-arduino-cli lib install "ArduinoJson"
+arduino-cli lib install "OneWire@2.3.8" "DallasTemperature@4.0.6" "ArduinoJson@7.4.3"
 ```
 
-### 2. Configure Credentials
+### 2. Credentials
 
 ```bash
 cp Credentials.h.example Credentials.h
 ```
 
-Edit `Credentials.h`:
 ```cpp
-#define WIFI_SSID "your-wifi-ssid"
+#define WIFI_SSID "your-wifi-ssid"        // built-in network, always tried as a last resort
 #define WIFI_PASSWORD "your-wifi-password"
-#define API_URL "https://your-server.com"
-#define API_KEY "your-api-key"
+#define API_URL "http://your-server.com"  // see "HTTPS" below
+#define API_KEY "your-device-api-key"
+#define OTA_PASSWORD "long-random-value"  // required: the build fails without it
 ```
 
-### 3. Build & Upload
+### 3. Build & upload
 
 ```bash
-# Compile
-arduino-cli compile --fqbn esp8266:esp8266:d1_mini_clone .
-
-# Upload via USB
-arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port /dev/ttyUSB0 .
-
-# Upload via OTA (after initial flash)
-arduino-cli upload --fqbn esp8266:esp8266:d1_mini_clone --port 192.168.1.x .
+./build.sh                 # compile only
+./upload.sh                # compile + OTA upload; finds the board named "thermostat" on the LAN
+./upload.sh 192.168.1.50  # OTA upload to a specific address
+./upload.sh usb [/dev/ttyUSB0]   # USB upload (first flash, or recovery)
 ```
 
-## Web Interface
+`upload.sh` reads the OTA password from `Credentials.h`. Keep the default board options:
+the `mmu=4816` (16 KB cache) layout frees IRAM but breaks DS18B20 timing, because OneWire's
+bit-banging code isn't placed in IRAM on the ESP8266.
 
-Access the local web interface at `http://<device-ip>/`
+## WiFi and recovery without USB
 
-### Endpoints
+Open **`http://<device-ip>/wifi`** (also linked from the main page):
+
+- Up to **5 networks**, joined by best signal. The compiled-in `WIFI_SSID` is always tried as
+  a last resort, so editing the list can't remove the known-good network. Leave a password
+  blank to keep the saved one; saved passwords are never shown.
+- **Rollback:** settings saved while offline are reverted if no network connects within 3 min.
+- **Fallback access point:** after 5 minutes without any network, the board starts its own
+  WPA2 access point (default `thermostat-setup` / `thermostat`, changeable on the same page).
+  Join it and the settings page opens automatically (captive portal); otherwise browse to
+  `http://192.168.4.1`. OTA works over the AP too: `./upload.sh 192.168.4.1`.
+- **Test access point** starts the AP for 3 minutes without dropping the current connection.
+
+Temperature control keeps running throughout; only the network link changes.
+
+## Local Web Interface
+
+`http://<device-ip>/`. State-changing endpoints require **POST** plus the header
+`X-Requested-With: thermostat`, so other websites can't drive the relays through a
+browser on the LAN.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Main control interface |
-| `/status` | GET | JSON status of all relays |
-| `/setmode` | GET | Set relay mode (AUTO/ON/OFF) |
-| `/settype` | GET | Set relay type |
-| `/setthresholds` | GET | Set temperature thresholds |
-| `/setfreq` | GET | Set update frequency |
-| `/setunit` | GET | Toggle Celsius/Fahrenheit |
-| `/logs` | GET | System logs page |
-| `/logs.json` | GET | System logs as JSON (CORS enabled) |
-| `/data` | GET | Temperature history CSV |
-| `/cleardata` | GET | Clear temperature history |
-
-### Example API Calls
+| `/` | GET | Main control page |
+| `/status` | GET | JSON: temperature (null if unknown), sensor fault, relays |
+| `/setmode?relay=0-3&mode=AUTO\|ON\|OFF` | POST | Relay mode |
+| `/settype?relay=0-3&type=HEATING\|COOLING\|GENERIC\|MANUAL_ONLY` | POST | Relay type |
+| `/setthresholds?relay=0-3&on=°C&off=°C` | POST | Thresholds (validated) |
+| `/setfreq?sec=5-300` | POST | Reading interval |
+| `/setunit?fahrenheit=0\|1` | POST | Display unit |
+| `/cleardata` | POST | Clear local temperature history |
+| `/wifi` | GET / POST | WiFi settings page / save settings (JSON body) |
+| `/wifi.json` | GET | WiFi status (no passwords) |
+| `/wifi/testap` | POST | Start the access point for 3 minutes |
+| `/logs` | GET | Log page (times in the browser's local time) |
+| `/logs.json?limit=N&all=1` | GET | Logs as JSON: `epoch` (UTC seconds), `time` (UTC label), `msg`. CORS-enabled for the dashboard |
+| `/data` | GET | Local temperature history (CSV, UTC epoch) |
+| `/sensordiag` | GET | DS18B20 bus diagnostics (see Troubleshooting) |
 
 ```bash
-# Get status
-curl http://192.168.1.x/status
-
-# Set relay 1 to AUTO mode
-curl "http://192.168.1.x/setmode?relay=0&mode=AUTO"
-
-# Set relay 1 type to HEATING
-curl "http://192.168.1.x/settype?relay=0&type=HEATING"
-
-# Set thresholds (in Celsius)
-curl "http://192.168.1.x/setthresholds?relay=0&on=18&off=21"
-
-# Get logs as JSON
-curl "http://192.168.1.x/logs.json?limit=100"
-```
-
-## Configuration Constants
-
-Edit `Config.h` to customize:
-
-```cpp
-// Pins
-constexpr uint8_t RELAY_PINS[] = {D1, D5, D6, D7};
-constexpr uint8_t TEMP_SENSOR_PIN = D2;
-
-// Defaults
-constexpr float DEFAULT_TEMP_ON = 18.3;   // 65°F
-constexpr float DEFAULT_TEMP_OFF = 21.1;  // 70°F
-constexpr int DEFAULT_UPDATE_FREQUENCY = 5; // seconds
-
-// Logging
-constexpr int MAX_SYSTEM_LOGS = 500;
-
-// API
-constexpr int API_SYNC_INTERVAL = 60;     // seconds
-constexpr int API_COMMAND_POLL_INTERVAL = 30; // seconds
+curl http://192.168.1.50/status
+curl -X POST -H 'X-Requested-With: thermostat' "http://192.168.1.50/setmode?relay=0&mode=AUTO"
 ```
 
 ## Backend Communication
 
-The firmware communicates with the Laravel backend via REST API:
+| What | When | Endpoint |
+|------|------|----------|
+| Register | At boot, retried every 60 s until it succeeds. Re-registering an existing device sends its current token (the server refuses re-registration by MAC alone). | `POST /api/devices/register` |
+| Heartbeat | Every 30 s: sensor fault, seconds since last good reading, firmware version, health | `POST /api/devices/{id}/heartbeat` |
+| Readings | Batches of up to 30 from the outbox, with device timestamps | `POST /api/devices/{id}/temperature/batch` |
+| Relay state | On change only (identical states are skipped) | `POST /api/devices/{id}/relay-state` |
+| Commands | Fetched immediately when a server reply reports `pending_commands > 0`; safety poll every 5 min | `GET /api/devices/{id}/commands/pending` |
 
-### Registration
-On boot, registers with backend and receives auth token.
+Against an older backend without the batch endpoint, the firmware falls back to single
+readings and re-checks every 10 minutes.
 
-### Heartbeat
-Sends periodic heartbeat to update online status.
+### HTTPS
 
-### Temperature
-Posts temperature readings at configured interval.
-
-### Relay State
-Reports relay state changes to backend.
-
-### Commands
-Polls for pending commands (mode changes, threshold updates, etc.)
-
-## Logging
-
-The firmware maintains an in-memory log of 500 entries. Logs are accessible via:
-
-- **Local:** `http://<device-ip>/logs`
-- **JSON API:** `http://<device-ip>/logs.json`
-- **Server Dashboard:** Fetches logs via CORS-enabled endpoint
-
-Log filtering hides repetitive messages (heartbeats, temp posts) by default.
-
-## Memory Optimization
-
-The web interface uses PROGMEM to store HTML/CSS/JS in flash memory, avoiding RAM allocation issues on the ESP8266's limited 80KB heap.
+The production server doesn't support TLS max-fragment-length negotiation, so HTTPS would
+need a ~17 KB receive buffer. The ESP8266 has ~22 KB free heap, which isn't enough to do that
+safely, so `API_URL` uses `http://`. Options for the future: HMAC request signing, or moving
+the server link to an ESP32 node. The backend can refuse plain-HTTP device calls with
+`API_REQUIRE_HTTPS=true` once devices support it.
 
 ## Troubleshooting
 
-### Web interface doesn't load
-- Check free heap memory in logs
-- Ensure only one client connects at a time
-- Restart device if heap is fragmented
+### Sensor errors ("not-found", "no-response")
 
-### Temperature reads -127°C
-- Check DS18B20 wiring
-- Verify 4.7k pull-up resistor on data line
-- Ensure correct pin in Config.h
+1. Open `/sensordiag`. It scans the bus and does one direct read, reporting: presence pulse,
+   devices found, parasite-power mode, address/scratchpad CRCs and the temperature.
+2. If `/sensordiag` reads fine but scheduled reads fail, it's a firmware read-path issue.
+3. If `/sensordiag` fails too: check the sensor's VDD, ground and data wires and the 4.7k
+   pull-up. If it reports `parasitePower: true`, the VDD wire is disconnected.
+4. Check the Device Health panel on the dashboard: repeated "Power on" or "Reset button /
+   power glitch" restarts point to the supply connection.
 
-### API connection fails
-- Verify WiFi connection
-- Check API_URL in Credentials.h
-- Ensure HTTPS certificate is valid (or use setInsecure())
+### Can't reach the device
 
-### Relay cycles rapidly
-- Increase hysteresis gap between ON and OFF thresholds
-- Check relay type matches your use case (HEATING vs COOLING)
+- After 5 minutes offline it starts the `thermostat-setup` access point (see above).
+- `arduino-cli board list` shows it as `thermostat at <ip>` when it's on the LAN.
+
+### Relay doesn't switch immediately in AUTO
+
+Expected: the 2-minute minimum on/off time. Changing the mode or thresholds applies at once.
