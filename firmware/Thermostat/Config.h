@@ -16,7 +16,7 @@ constexpr size_t MAX_LOG_MESSAGE_LEN = 160; // longer messages are truncated
 
 // ---- API Configuration ----
 // API_URL is defined in Credentials.h
-#define FIRMWARE_VERSION "2.5.0"
+#define FIRMWARE_VERSION "2.5.1"
 constexpr int API_HEARTBEAT_INTERVAL = 30000;  // ms — replies say whether commands are waiting
 constexpr int API_COMMAND_POLL_INTERVAL = 30000;          // ms, used until the server reports pending_commands
 constexpr int API_COMMAND_POLL_FALLBACK = 300000;         // ms, safety poll once it does (5 min)

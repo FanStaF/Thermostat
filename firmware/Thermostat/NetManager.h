@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
+#include <DNSServer.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include "Config.h"
@@ -38,6 +39,12 @@ public:
   String applySettings(JsonDocument& doc);
   void startTestAp();  // start the AP for WIFI_AP_TEST_DURATION
 
+  // True if the current web request arrived through our own access point
+  // (used to redirect phones' captive-portal checks to the settings page).
+  static bool requestViaAp(const IPAddress& localIp) {
+    return localIp == WiFi.softAPIP();
+  }
+
 private:
   Network networks[WIFI_MAX_NETWORKS];
   int networkCount = 0;
@@ -45,6 +52,9 @@ private:
   String apPassword = WIFI_AP_DEFAULT_PASSWORD;
 
   ESP8266WiFiMulti multi;
+  // Captive portal: while the AP runs, every DNS name resolves to us, so
+  // phones show the settings page on join and stay on the AP.
+  DNSServer dns;
   bool apActive = false;
   unsigned long apStopAt = 0;           // 0 = no automatic stop (fallback AP)
   unsigned long disconnectedSince = 0;  // 0 = currently connected

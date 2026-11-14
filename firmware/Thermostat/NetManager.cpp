@@ -108,6 +108,8 @@ void NetManager::startAp(unsigned long durationMs) {
       return;
     }
     apActive = true;
+    dns.setErrorReplyCode(DNSReplyCode::NoError);
+    dns.start(53, "*", WiFi.softAPIP());
     logger.addLog("Access point '" + apSsid + "' started: http://" + WiFi.softAPIP().toString());
   }
   apStopAt = durationMs ? millis() + durationMs : 0;
@@ -115,6 +117,7 @@ void NetManager::startAp(unsigned long durationMs) {
 
 void NetManager::stopAp() {
   if (!apActive) return;
+  dns.stop();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
   apActive = false;
@@ -129,6 +132,7 @@ void NetManager::startTestAp() {
 
 void NetManager::loop() {
   unsigned long now = millis();
+  if (apActive) dns.processNextRequest();
   bool connected = isConnected();
 
   if (connected) {

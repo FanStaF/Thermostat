@@ -174,7 +174,18 @@ void WebInterface::begin() {
   server.on("/setunit", HTTP_POST, [this]() { if (checkCsrf()) this->handleSetUnit(); });
   server.on("/cleardata", HTTP_POST, [this]() { if (checkCsrf()) this->handleClearData(); });
 
-  server.onNotFound([this]() { server.send(404, "text/plain", "Not found"); });
+  server.onNotFound([this]() {
+    // Captive portal: phones joining our access point probe URLs like
+    // /generate_204 (Android) or /hotspot-detect.html (Apple) on other
+    // hosts; DNS sends them here, and a redirect makes the phone pop up the
+    // WiFi settings page. Requests over the normal LAN get a plain 404.
+    if (NetManager::requestViaAp(server.client().localIP())) {
+      server.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/wifi", true);
+      server.send(302, "text/plain", "");
+      return;
+    }
+    server.send(404, "text/plain", "Not found");
+  });
 
   server.collectHeaders(CSRF_HEADER);
 
