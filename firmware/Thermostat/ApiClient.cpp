@@ -3,12 +3,16 @@
 #include "SystemLogger.h"
 #include "Credentials.h"
 #include <LittleFS.h>
+#include <time.h>
+#include "FileUtil.h"
 
 extern SystemLogger logger;
 
 ApiClient::ApiClient(const String& apiUrl)
   : apiUrl(apiUrl), deviceId(-1), authToken(""),
-    pendingCommandCount(0), nextCommandIdx(0), tempDirty(false) {
+    pendingCommandCount(0), nextCommandIdx(0),
+    outboxSize(-1), bootId(0), pendingFlag(false), serverReportsPending(false),
+    lastHttpCode(0), batchUnsupported(false), batchUnsupportedSince(0) {
   useHttps = apiUrl.startsWith("https://");
   for (int i = 0; i < 4; i++) {
     relayDirty[i] = false;
@@ -17,6 +21,7 @@ ApiClient::ApiClient(const String& apiUrl)
 }
 
 void ApiClient::begin() {
+  bootId = ESP.random();
   if (useHttps) {
     wifiClientSecure.setInsecure();
     wifiClientSecure.setBufferSizes(TLS_RX_BUFFER, TLS_TX_BUFFER);
@@ -144,7 +149,9 @@ bool ApiClient::sendHeartbeat(bool sensorFault, long secondsSinceGoodReading) {
   String response;
   String endpoint = "/api/devices/" + String(deviceId) + "/heartbeat";
 
-  return makePostRequest(endpoint, jsonPayload, response);
+  bool ok = makePostRequest(endpoint, jsonPayload, response);
+  if (ok) notePendingCommands(response);
+  return ok;
 }
 
 bool ApiClient::sendTemperatureReading(float temperature, int sensorId) {
@@ -224,6 +231,7 @@ bool ApiClient::pollCommands() {
         pendingCommandCount++;
       }
 
+      pendingFlag = false;
       if (pendingCommandCount > 0) {
         logger.addLog("Received " + String(pendingCommandCount) + " pending commands");
       }
@@ -290,6 +298,7 @@ bool ApiClient::makePostRequest(const String& endpoint, const String& jsonPayloa
   http.addHeader("Authorization", "Bearer " + authToken);
 
   int httpCode = http.POST(jsonPayload);
+  lastHttpCode = httpCode;
 
   // Combined log: endpoint and response code
   logger.addLog("POST " + endpoint + " : " + String(httpCode));
@@ -402,12 +411,186 @@ int ApiClient::nextDirtyRelay() const {
   return -1;
 }
 
-void ApiClient::markTempDirty() {
-  tempDirty = true;
+void ApiClient::notePendingCommands(const String& response) {
+  JsonDocument doc;
+  if (deserializeJson(doc, response)) return;
+  if (!doc["pending_commands"].is<int>()) return;
+  serverReportsPending = true;
+  pendingFlag = doc["pending_commands"].as<int>() > 0;
 }
 
-void ApiClient::clearTempDirty() {
-  tempDirty = false;
+// ---- Outbox ----
+// Line formats:
+//   e<epoch>,<temp>,<sensor>          clock was synced when measured
+//   m<bootId>:<upsec>,<temp>,<sensor> measured before NTP sync this boot
+
+void ApiClient::enqueueReading(float temperature, int sensorId) {
+  if (outboxSize < 0) {
+    File f = LittleFS.open(OUTBOX_FILE, "r");
+    outboxSize = f ? (long)f.size() : 0;
+    if (f) f.close();
+  }
+  if ((size_t)outboxSize > OUTBOX_MAX_BYTES) {
+    // Long outage: keep the newest readings, drop the oldest.
+    File f = LittleFS.open(OUTBOX_FILE, "r");
+    size_t size = f ? f.size() : 0;
+    if (f) f.close();
+    if (size > OUTBOX_KEEP_BYTES) {
+      FileUtil::keepTail(OUTBOX_FILE, OUTBOX_TMP_FILE, size - OUTBOX_KEEP_BYTES, true);
+      logger.addLog("WARN: Outbox full, oldest unsent readings dropped");
+    }
+    outboxSize = -1;
+  }
+
+  char line[48];
+  time_t now = time(nullptr);
+  if (now >= 1000000000) {
+    snprintf(line, sizeof(line), "e%lu,%.2f,%d\n", (unsigned long)now, temperature, sensorId);
+  } else {
+    snprintf(line, sizeof(line), "m%lu:%lu,%.2f,%d\n", (unsigned long)bootId,
+             (unsigned long)(millis() / 1000), temperature, sensorId);
+  }
+
+  File f = LittleFS.open(OUTBOX_FILE, "a");
+  if (!f) return;
+  size_t n = f.print(line);
+  f.close();
+  if (outboxSize >= 0) outboxSize += n;
+}
+
+bool ApiClient::hasOutbox() {
+  if (outboxSize < 0) {
+    File f = LittleFS.open(OUTBOX_FILE, "r");
+    outboxSize = f ? (long)f.size() : 0;
+    if (f) f.close();
+  }
+  return outboxSize > 0;
+}
+
+bool ApiClient::resolveOutboxLine(const String& line, uint32_t nowEpoch, long& epochOut,
+                                  float& tempOut, int& sensorOut, bool& waitForClock) {
+  waitForClock = false;
+  int c1 = line.indexOf(',');
+  int c2 = line.indexOf(',', c1 + 1);
+  if (line.length() < 4 || c1 < 0 || c2 < 0) return false;
+  tempOut = line.substring(c1 + 1, c2).toFloat();
+  sensorOut = line.substring(c2 + 1).toInt();
+
+  if (line[0] == 'e') {
+    epochOut = line.substring(1, c1).toInt();
+    return true;
+  }
+  if (line[0] == 'm') {
+    int colon = line.indexOf(':');
+    if (colon < 0 || colon > c1) return false;
+    uint32_t id = strtoul(line.substring(1, colon).c_str(), nullptr, 10);
+    unsigned long upsec = strtoul(line.substring(colon + 1, c1).c_str(), nullptr, 10);
+    if (id != bootId) {
+      epochOut = 0;  // previous boot: real time unknown, server uses receipt time
+      return true;
+    }
+    if (nowEpoch == 0) {
+      waitForClock = true;  // this boot, clock not synced yet: wait for NTP
+      return false;
+    }
+    epochOut = (long)nowEpoch - (long)(millis() / 1000 - upsec);
+    return true;
+  }
+  return false;
+}
+
+// Older backend: upload only the newest queued reading (no timestamps
+// supported), then clear the queue.
+bool ApiClient::sendNewestQueuedReadingLegacy() {
+  File f = LittleFS.open(OUTBOX_FILE, "r");
+  if (!f) { outboxSize = 0; return false; }
+  String last;
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (line.length() > 0) last = line;
+  }
+  f.close();
+  int c1 = last.indexOf(',');
+  int c2 = last.indexOf(',', c1 + 1);
+  bool ok = true;
+  if (c1 > 0 && c2 > c1) {
+    ok = sendTemperatureReading(last.substring(c1 + 1, c2).toFloat(), last.substring(c2 + 1).toInt());
+  }
+  if (ok) {
+    LittleFS.remove(OUTBOX_FILE);
+    outboxSize = 0;
+  }
+  return ok;
+}
+
+bool ApiClient::sendOutboxBatch() {
+  if (deviceId <= 0 || !hasOutbox()) return false;
+  if (batchUnsupported && millis() - batchUnsupportedSince >= 600000UL) {
+    batchUnsupported = false;  // re-check every 10 min in case the backend was upgraded
+  }
+  if (batchUnsupported) return sendNewestQueuedReadingLegacy();
+
+  File f = LittleFS.open(OUTBOX_FILE, "r");
+  if (!f) { outboxSize = 0; return false; }
+
+  time_t now = time(nullptr);
+  uint32_t nowEpoch = now >= 1000000000 ? (uint32_t)now : 0;
+
+  JsonDocument doc;
+  JsonArray readings = doc["readings"].to<JsonArray>();
+  size_t consumed = 0;
+  int count = 0;
+
+  while (f.available() && count < OUTBOX_BATCH) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    long epoch; float temp; int sensor; bool wait;
+    if (line.length() > 0 && !resolveOutboxLine(line, nowEpoch, epoch, temp, sensor, wait)) {
+      if (wait) break;  // keep this and later lines until the clock syncs
+      consumed = f.position();  // malformed line: drop it
+      continue;
+    }
+    consumed = f.position();
+    if (line.length() == 0) continue;
+    JsonObject r = readings.add<JsonObject>();
+    r["temperature"] = temp;
+    r["sensor_id"] = sensor;
+    if (epoch > 0) r["recorded_at"] = epoch;
+    count++;
+  }
+  f.close();
+
+  if (count == 0) {
+    if (consumed > 0) FileUtil::keepTail(OUTBOX_FILE, OUTBOX_TMP_FILE, consumed, false);
+    outboxSize = -1;
+    return consumed > 0;
+  }
+
+  String payload;
+  serializeJson(doc, payload);
+  String response;
+  String endpoint = "/api/devices/" + String(deviceId) + "/temperature/batch";
+  bool ok = makePostRequest(endpoint, payload, response);
+
+  if (!ok && lastHttpCode == 404) {
+    // Older backend without the batch endpoint: fall back to single readings.
+    logger.addLog("Server has no batch endpoint, using single-reading uploads");
+    batchUnsupported = true;
+    batchUnsupportedSince = millis();
+    return sendNewestQueuedReadingLegacy();
+  } else if (!ok && lastHttpCode == 422) {
+    logger.addLog("WARN: Server rejected reading batch, dropping it");
+    ok = true;  // don't retry bad data forever
+  }
+
+  if (!ok) return false;  // keep everything; retried next loop
+
+  notePendingCommands(response);
+  // Server confirmed: remove the sent lines (purge-after-upload).
+  FileUtil::keepTail(OUTBOX_FILE, OUTBOX_TMP_FILE, consumed, false);
+  outboxSize = -1;
+  return true;
 }
 
 ApiClient::Command* ApiClient::peekNextCommand() {

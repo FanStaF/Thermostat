@@ -16,9 +16,10 @@ constexpr size_t MAX_LOG_MESSAGE_LEN = 160; // longer messages are truncated
 
 // ---- API Configuration ----
 // API_URL is defined in Credentials.h
-#define FIRMWARE_VERSION "2.3.0"
-constexpr int API_HEARTBEAT_INTERVAL = 60000;  // ms (1 minute)
-constexpr int API_COMMAND_POLL_INTERVAL = 30000;  // ms (30 seconds)
+#define FIRMWARE_VERSION "2.4.0"
+constexpr int API_HEARTBEAT_INTERVAL = 30000;  // ms — replies say whether commands are waiting
+constexpr int API_COMMAND_POLL_INTERVAL = 30000;          // ms, used until the server reports pending_commands
+constexpr int API_COMMAND_POLL_FALLBACK = 300000;         // ms, safety poll once it does (5 min)
 constexpr int HTTP_REQUEST_TIMEOUT = 5000;     // ms — kept short so blocking calls don't starve the web server
 constexpr int TLS_RX_BUFFER = 1024;            // bytes — TLS fragment input buffer
 constexpr int TLS_TX_BUFFER = 4096;            // bytes — TLS output buffer (handshake needs >2K)
@@ -31,6 +32,13 @@ constexpr unsigned long REGISTER_RETRY_INTERVAL = 60000; // ms between backend r
 #define CONFIG_TMP_FILE "/config.tmp"
 #define LOG_FILE "/temp_log.csv"
 #define LOG_TMP_FILE "/temp_log.tmp"
+// Outbox: readings not yet confirmed by the server. Lines are deleted once
+// the server accepts them; capped so a long outage can't fill the flash.
+#define OUTBOX_FILE "/outbox.csv"
+#define OUTBOX_TMP_FILE "/outbox.tmp"
+constexpr size_t OUTBOX_MAX_BYTES = 32 * 1024;   // ~1500 readings (~25h at 60s)
+constexpr size_t OUTBOX_KEEP_BYTES = 24 * 1024;  // oldest dropped beyond the cap
+constexpr int OUTBOX_BATCH = 30;                  // readings per upload request
 constexpr size_t LOG_FILE_MAX_BYTES = 64 * 1024;  // trim temp log when it grows past this
 constexpr size_t LOG_FILE_KEEP_BYTES = 16 * 1024; // ...keeping roughly this much of the newest data
 constexpr size_t FS_MIN_FREE_BYTES = 32 * 1024;   // stop appending to the log below this much free space

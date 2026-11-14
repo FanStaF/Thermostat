@@ -130,7 +130,10 @@ class DeviceController extends Controller
 
         $device->update($update);
 
-        return response()->json(['message' => 'Heartbeat updated']);
+        return response()->json([
+            'message' => 'Heartbeat updated',
+            'pending_commands' => $device->pendingCommandCount(),
+        ]);
     }
 
     /**
@@ -223,6 +226,10 @@ class DeviceController extends Controller
         ]);
 
         return response()->json([
+            'version' => $device->dataVersion(),
+            'lastSeenAt' => $device->last_seen_at?->toIso8601String(),
+            'isOnline' => $device->is_online,
+            'updateFrequency' => $device->updateFrequency(),
             'latestReading' => $device->temperatureReadings->first(),
             'relays' => $device->relays,
             'sensorFault' => $device->has_active_sensor_fault,

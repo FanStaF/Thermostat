@@ -14,17 +14,18 @@ Route::get('/user', function (Request $request) {
 
 // Device Registration (requires API key, rate limited to 10 per minute)
 Route::post('/devices/register', [DeviceController::class, 'register'])
-    ->middleware(['api.key', 'throttle:10,1']);
+    ->middleware(['https.api', 'api.key', 'throttle:10,1']);
 
 // Device-token API: every endpoint here is called by the firmware itself, so
 // we additionally require the token's owner device to match the {device} bind.
-Route::middleware(['auth:sanctum', 'throttle:120,1', 'device.scope'])->group(function () {
+Route::middleware(['https.api', 'auth:sanctum', 'throttle:120,1', 'device.scope'])->group(function () {
     Route::post('/devices/{device}/heartbeat', [DeviceController::class, 'heartbeat']);
     Route::get('/devices/{device}', [DeviceController::class, 'show']);
     Route::get('/devices/{device}/dashboard-data', [DeviceController::class, 'dashboardData']);
 
     // Temperature Readings
     Route::post('/devices/{device}/temperature', [TemperatureController::class, 'store']);
+    Route::post('/devices/{device}/temperature/batch', [TemperatureController::class, 'storeBatch']);
     Route::get('/devices/{device}/temperature', [TemperatureController::class, 'index']);
     Route::get('/devices/{device}/temperature/stats', [TemperatureController::class, 'stats']);
 

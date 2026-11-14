@@ -14,6 +14,26 @@ class DashboardController extends Controller
     /**
      * Display dashboard with all devices
      */
+    /**
+     * Lightweight per-device status for the device list's live refresh.
+     */
+    public function summary()
+    {
+        $user = auth()->user();
+        $query = Device::with(['settings']);
+        if (!$user->isAdmin()) {
+            $query->whereHas('users', fn ($q) => $q->where('user_id', $user->id));
+        }
+
+        return response()->json($query->get()->map(fn (Device $d) => [
+            'id' => $d->id,
+            'version' => $d->dataVersion(),
+            'lastSeenAt' => $d->last_seen_at?->toIso8601String(),
+            'isOnline' => $d->is_online,
+            'updateFrequency' => $d->updateFrequency(),
+        ]));
+    }
+
     public function index()
     {
         $user = auth()->user();

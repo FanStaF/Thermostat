@@ -74,6 +74,61 @@
             .card-title { font-size: 16px; }
         }
     </style>
+    <script>
+        // Live "x ago" timers: elements registered here count up every second
+        // locally and are reset by LiveTime.set() when the server reports a
+        // newer time, so pages don't need to re-render just to age a label.
+        window.LiveTime = (() => {
+            const tracked = {};   // element id -> timestamp (ms)
+
+            function ago(ms) {
+                const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+                if (s < 5) return 'just now';
+                if (s < 60) return `${s}s ago`;
+                const m = Math.floor(s / 60);
+                if (m < 60) return `${m}m ${s % 60}s ago`;
+                const h = Math.floor(m / 60);
+                if (h < 24) return `${h}h ${m % 60}m ago`;
+                return `${Math.floor(h / 24)}d ${h % 24}h ago`;
+            }
+
+            function render() {
+                for (const [id, ms] of Object.entries(tracked)) {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = ago(ms);
+                }
+                // Online badges (data-online-for="<timer id>"): offline after
+                // 5 minutes without contact, matching Device::is_online.
+                document.querySelectorAll('[data-online-for]').forEach(badge => {
+                    const ms = tracked[badge.dataset.onlineFor];
+                    if (ms === undefined) return;
+                    const online = Date.now() - ms < 5 * 60 * 1000;
+                    badge.textContent = online ? 'Online' : 'Offline';
+                    badge.classList.toggle('online', online);
+                    badge.classList.toggle('offline', !online);
+                });
+            }
+
+            function set(id, iso) {
+                const ms = iso ? Date.parse(iso) : NaN;
+                if (!isNaN(ms)) tracked[id] = ms;
+            }
+
+            // Poll at the device's reading interval, clamped to 5-60s.
+            function pollMs(updateFrequencySeconds) {
+                const s = Number(updateFrequencySeconds) || 30;
+                return Math.min(60, Math.max(5, s)) * 1000;
+            }
+
+            document.addEventListener('DOMContentLoaded', () => {
+                document.querySelectorAll('[data-ts]').forEach(el => set(el.id, el.dataset.ts));
+                render();
+                setInterval(render, 1000);
+            });
+
+            return { set, pollMs, ago };
+        })();
+    </script>
 </head>
 <body>
     <div class="header">

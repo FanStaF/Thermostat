@@ -18,9 +18,11 @@
                             @if($device->has_active_sensor_fault)
                                 <span class="status offline" title="{{ $device->sensor_fault_message }}">Sensor fault</span>
                             @endif
-                            <span class="status {{ $device->is_online ? 'online' : 'offline' }}">
+                            <span class="status {{ $device->is_online ? 'online' : 'offline' }}" data-online-for="lastSeen-{{ $device->id }}">
                                 {{ $device->is_online ? 'Online' : 'Offline' }}
                             </span>
+                            {{-- Hidden timer source for the live online badge. --}}
+                            <span id="lastSeen-{{ $device->id }}" data-ts="{{ $device->last_seen_at?->toIso8601String() }}" style="display: none;"></span>
                         </span>
                     </div>
 
@@ -39,7 +41,7 @@
                                     {{ number_format($temp, 1) }}{{ $unit }}
                                 </div>
                                 <div style="font-size: 12px; color: #666; margin-top: 5px;">
-                                    {{ $device->latest_temp->recorded_at->diffForHumans() }}
+                                    <span id="lastReading-{{ $device->id }}" data-ts="{{ $device->latest_temp->recorded_at->toIso8601String() }}">{{ $device->latest_temp->recorded_at->diffForHumans() }}</span>
                                 </div>
                             </div>
                             @if($device->temp_trend_data && $device->temp_trend_data->count() > 1)
@@ -190,9 +192,37 @@
         @endforeach
     });
 
-    // Auto-refresh every 15 seconds for live updates
-    setInterval(() => {
-        window.location.reload();
-    }, 15000);
+    // Live refresh: poll a small summary at the fastest device's update
+    // frequency. "x ago" labels and online badges tick locally (LiveTime);
+    // the page only reloads when a device actually has new data.
+    (() => {
+        const versions = {};
+        let pollMs = 30000;
+        let first = true;
+
+        async function poll() {
+            if (document.visibilityState === 'visible') {
+                try {
+                    const r = await fetch('{{ route('dashboard.summary') }}', { headers: { 'Accept': 'application/json' } });
+                    if (r.ok) {
+                        const devices = await r.json();
+                        let changed = false;
+                        for (const d of devices) {
+                            LiveTime.set(`lastSeen-${d.id}`, d.lastSeenAt);
+                            if (!first && versions[d.id] !== d.version) changed = true;
+                            versions[d.id] = d.version;
+                        }
+                        if (devices.length) {
+                            pollMs = Math.min(...devices.map(d => LiveTime.pollMs(d.updateFrequency)));
+                        }
+                        first = false;
+                        if (changed) { window.location.reload(); return; }
+                    }
+                } catch (e) { /* network blip: try again next tick */ }
+            }
+            setTimeout(poll, pollMs);
+        }
+        poll();
+    })();
 </script>
 @endsection

@@ -38,14 +38,14 @@
                     <span style="font-size: 20px; font-weight: 600;">{{ $device->name }}</span>
                 @endif
             </div>
-            <span class="status {{ $device->is_online ? 'online' : 'offline' }}">
+            <span id="onlineStatus" data-online-for="lastSeen" class="status {{ $device->is_online ? 'online' : 'offline' }}">
                 {{ $device->is_online ? 'Online' : 'Offline' }}
             </span>
         </div>
         <div class="device-info-section">
             <div><strong>IP:</strong> {{ $device->ip_address ?? 'N/A' }}</div>
             <div><strong>Firmware:</strong> {{ $device->firmware_version ?? 'Unknown' }}</div>
-            <div><strong>Last Seen:</strong> {{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'Never' }}</div>
+            <div><strong>Last Seen:</strong> <span id="lastSeen" data-ts="{{ $device->last_seen_at?->toIso8601String() }}">{{ $device->last_seen_at ? $device->last_seen_at->diffForHumans() : 'Never' }}</span></div>
             @if(auth()->user()->isAdmin())
                 <div>
                     @if($device->reregistration_allowed)
@@ -80,11 +80,9 @@
                 --
             @endif
         </div>
-        @if($latestReading)
-            <div style="font-size: 14px; color: #999; margin-top: 5px;">
-                Last updated: {{ $latestReading->recorded_at->diffForHumans() }}
-            </div>
-        @endif
+        <div style="font-size: 14px; color: #999; margin-top: 5px; {{ $latestReading ? '' : 'display: none;' }}" id="lastUpdatedRow">
+            Last reading: <span id="lastUpdated" data-ts="{{ $latestReading?->recorded_at?->toIso8601String() }}">{{ $latestReading ? $latestReading->recorded_at->diffForHumans() : '' }}</span>
+        </div>
     </div>
 </div>
 
@@ -478,6 +476,21 @@
 
                 const data = await response.json();
 
+                // Always: last-seen moves with every heartbeat, and the poll
+                // interval follows the device's update frequency.
+                LiveTime.set('lastSeen', data.lastSeenAt);
+                pollIntervalMs = LiveTime.pollMs(data.updateFrequency);
+
+                // Nothing new (no reading, relay change or fault change):
+                // skip touching the page.
+                if (data.version === lastVersion) return;
+                lastVersion = data.version;
+
+                if (data.latestReading) {
+                    LiveTime.set('lastUpdated', data.latestReading.recorded_at);
+                    document.getElementById('lastUpdatedRow').style.display = '';
+                }
+
                 // Sensor fault banner
                 const faultBanner = document.getElementById('sensorFaultBanner');
                 if (faultBanner) {
@@ -538,8 +551,18 @@
             }
         }
 
-        // Refresh every 30 seconds
-        setInterval(refreshData, 30000);
+        // Poll at the device's update frequency (5-60s), not a fixed 30s.
+        // Paused while the tab is hidden; refreshes at once when shown again.
+        let lastVersion = null;
+        let pollIntervalMs = LiveTime.pollMs({{ $device->updateFrequency() }});
+        async function pollLoop() {
+            if (document.visibilityState === 'visible') await refreshData();
+            setTimeout(pollLoop, pollIntervalMs);
+        }
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') refreshData();
+        });
+        setTimeout(pollLoop, pollIntervalMs);
     });
 
     // Command sending functions
