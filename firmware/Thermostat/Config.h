@@ -16,7 +16,7 @@ constexpr size_t MAX_LOG_MESSAGE_LEN = 160; // longer messages are truncated
 
 // ---- API Configuration ----
 // API_URL is defined in Credentials.h
-#define FIRMWARE_VERSION "2.4.0"
+#define FIRMWARE_VERSION "2.5.0"
 constexpr int API_HEARTBEAT_INTERVAL = 30000;  // ms — replies say whether commands are waiting
 constexpr int API_COMMAND_POLL_INTERVAL = 30000;          // ms, used until the server reports pending_commands
 constexpr int API_COMMAND_POLL_FALLBACK = 300000;         // ms, safety poll once it does (5 min)
@@ -71,9 +71,14 @@ constexpr int MAX_DATA_LINES = 500;         // Maximum lines to send in data end
 constexpr int MIN_DATA_LINES = 100;         // Minimum lines to send
 constexpr int BYTES_PER_LINE_ESTIMATE = 20; // For file seeking calculation
 
-// ---- WiFi Connection ----
-constexpr int WIFI_MAX_ATTEMPTS = 40;
-constexpr int WIFI_RETRY_DELAY = 500;       // ms
+// ---- WiFi Connection (see NetManager) ----
+constexpr int WIFI_MAX_NETWORKS = 5;                        // saved networks (+ built-in WIFI_SSID)
+#define WIFI_AP_DEFAULT_SSID "thermostat-setup"
+#define WIFI_AP_DEFAULT_PASSWORD "thermostat"               // WPA2 minimum is 8 characters
+constexpr unsigned long WIFI_AP_FALLBACK_AFTER = 300000;    // ms offline before own AP starts (5 min)
+constexpr unsigned long WIFI_AP_TEST_DURATION = 180000;     // ms the "test AP" button keeps it up
+constexpr unsigned long WIFI_CONFIRM_TIMEOUT = 180000;      // ms before unproven settings roll back
+constexpr unsigned long WIFI_RETRY_WITH_AP_CLIENT = 120000; // ms between scans while someone uses the AP
 
 // ---- Default Temperature Settings ----
 // For HEATING: ON when temp drops to tempOn, OFF when temp rises to tempOff

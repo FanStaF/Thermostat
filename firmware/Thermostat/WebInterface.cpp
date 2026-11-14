@@ -1,4 +1,44 @@
 #include "WebInterface.h"
+#include "NetManager.h"
+
+static const char WIFI_PAGE[] PROGMEM = R"rawliteral(<!doctype html><html><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><title>WiFi Settings</title>
+<style>body{font-family:Arial;max-width:560px;margin:20px auto;padding:0 16px;background:#f5f5f5;color:#333}
+h1{font-size:22px}fieldset{background:#fff;border:1px solid #ddd;border-radius:8px;margin:14px 0;padding:12px}
+legend{font-weight:bold}.row{display:flex;gap:6px;margin:6px 0}.row input{flex:1;min-width:0;padding:7px;border:1px solid #ccc;border-radius:4px}
+button{padding:8px 14px;border:none;border-radius:6px;color:#fff;background:#2196F3;cursor:pointer;margin:4px 4px 0 0}
+.del{background:#f44336;padding:7px 10px}.muted{color:#777;font-size:13px}#msg{margin:10px 0;font-weight:bold}</style></head><body>
+<a href='/'>&larr; Back</a><h1>WiFi Settings</h1>
+<div id='status' class='muted'>Loading...</div>
+<fieldset><legend>Networks (joined by best signal)</legend>
+<div class='muted'>Up to <span id='max'></span> networks. Leave a password blank to keep the saved one.
+The built-in network <b id='builtin'></b> is always tried as a last resort.</div>
+<div id='nets'></div><button type='button' onclick='addRow("","")'>+ Add network</button></fieldset>
+<fieldset><legend>Fallback access point</legend>
+<div class='muted'>Started automatically after 5 minutes without any network. Connect to it and open <b>http://192.168.4.1</b>.</div>
+<div class='row'><input id='apSsid' placeholder='Access point name'></div>
+<div class='row'><input id='apPassword' type='password' placeholder='Password (8+ characters, blank = keep)'></div>
+<button type='button' onclick='testAp()'>Test access point (3 min)</button></fieldset>
+<button type='button' onclick='save()'>Save</button><div id='msg'></div>
+<script>
+const H={'X-Requested-With':'thermostat','Content-Type':'application/json'};let max=5;
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function addRow(ssid){const n=document.getElementById('nets');if(n.children.length>=max){alert('Maximum '+max+' networks');return}
+const d=document.createElement('div');d.className='row';d.innerHTML="<input class='ssid' placeholder='Network name' value='"+esc(ssid)+"'><input class='pw' type='password' placeholder='Password'><button type='button' class='del' onclick='this.parentNode.remove()'>&times;</button>";n.appendChild(d)}
+async function load(){const d=await (await fetch('/wifi.json')).json();max=d.maxNetworks;
+document.getElementById('max').textContent=max;document.getElementById('builtin').textContent=d.builtinSsid;
+document.getElementById('nets').innerHTML='';d.networks.forEach(n=>addRow(n.ssid));
+document.getElementById('apSsid').value=d.apSsid;
+let s=d.connected?('Connected to <b>'+esc(d.currentSsid)+'</b> ('+d.rssi+' dBm), '+esc(d.ip)):'<b>Not connected</b>';
+if(d.apActive)s+=' &middot; Access point active at '+esc(d.apIp);if(d.pendingConfirm)s+=' &middot; new settings not yet confirmed (auto-rollback in 3 min)';
+document.getElementById('status').innerHTML=s}
+async function save(){const nets=[...document.querySelectorAll('#nets .row')].map(r=>({ssid:r.querySelector('.ssid').value.trim(),password:r.querySelector('.pw').value})).filter(n=>n.ssid);
+const r=await fetch('/wifi',{method:'POST',headers:H,body:JSON.stringify({networks:nets,apSsid:document.getElementById('apSsid').value.trim(),apPassword:document.getElementById('apPassword').value})});
+const d=await r.json();const m=document.getElementById('msg');m.style.color=r.ok?'green':'red';m.textContent=r.ok?'Saved.':(d.error||'Error');if(r.ok){document.getElementById('apPassword').value='';load()}}
+async function testAp(){const r=await fetch('/wifi/testap',{method:'POST',headers:H});const m=document.getElementById('msg');m.style.color=r.ok?'green':'red';
+m.textContent=r.ok?'Access point started for 3 minutes. Look for it on your phone.':'Error';setTimeout(load,1500)}
+load();setInterval(load,10000);
+</script></body></html>)rawliteral";
 #include <time.h>
 
 // Format a log entry's timestamp for display: HH:MM:SS UTC when NTP is
@@ -99,6 +139,27 @@ void WebInterface::begin() {
   server.on("/logs", HTTP_GET, [this]() { this->handleLogs(); });
   server.on("/logs.json", HTTP_GET, [this]() { this->handleLogsJson(); });
   server.on("/data", HTTP_GET, [this]() { this->handleData(); });
+  server.on("/wifi", HTTP_GET, [this]() { server.send_P(200, "text/html", WIFI_PAGE); });
+  server.on("/wifi.json", HTTP_GET, [this]() {
+    JsonDocument doc;
+    net.toJson(doc);
+    String out;
+    serializeJson(doc, out);
+    server.send(200, "application/json", out);
+  });
+  server.on("/wifi", HTTP_POST, [this]() {
+    if (!checkCsrf()) return;
+    JsonDocument doc;
+    if (deserializeJson(doc, server.arg("plain"))) { sendError("Invalid JSON"); return; }
+    String err = net.applySettings(doc);
+    if (err.length()) { sendError(err); return; }
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
+  server.on("/wifi/testap", HTTP_POST, [this]() {
+    if (!checkCsrf()) return;
+    net.startTestAp();
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
   server.on("/sensordiag", HTTP_GET, [this]() {
     server.send(200, "application/json", tempManager.diagnostics());
   });
@@ -164,6 +225,8 @@ static const char BODY_HTML[] PROGMEM = R"rawliteral(<h1>Thermostat Control</h1>
 <div style='margin-bottom:15px;'>
 <a href='/logs' style='color:#2196F3;text-decoration:none;font-size:14px;'>View System Logs</a>
 <span style='margin:0 15px;'>|</span>
+<a href='/wifi' style='color:#2196F3;text-decoration:none;font-size:14px;'>WiFi Settings</a>
+<span style='margin:0 15px;'>|</span>
 <button id='unitToggle' class='btn-auto' onclick='toggleUnit()' style='padding:4px 10px;font-size:12px;'>°F</button>
 </div>
 <div class='temp'>Temperature: <span id='temp'>--</span><span id='unit'>&deg;C</span></div>
@@ -223,6 +286,7 @@ async function updateChart(){try{const r=await fetch('/data');const t=await r.te
 updateStatus();setInterval(updateStatus,2000);updateChart();setInterval(updateChart,30000);
 </script>
 )rawliteral";
+
 
 void WebInterface::handleRoot() {
   // Use chunked transfer to stream from PROGMEM without RAM allocation

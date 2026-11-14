@@ -15,6 +15,7 @@ static_assert(sizeof(OTA_PASSWORD) > 8, "OTA_PASSWORD must be at least 8 charact
 #include "ConfigManager.h"
 #include "WebInterface.h"
 #include "ApiClient.h"
+#include "NetManager.h"
 
 // ---- Global Variables ----
 int updateFrequency = DEFAULT_UPDATE_FREQUENCY;
@@ -51,22 +52,9 @@ void setup() {
   // Initialize temperature sensor
   tempManager.begin();
 
-  // Connect to WiFi
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  logger.addLog("Connecting to WiFi...");
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < WIFI_MAX_ATTEMPTS) {
-    delay(WIFI_RETRY_DELAY);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    logger.addLog("WiFi connected: " + WiFi.localIP().toString());
-  } else {
-    logger.addLog("ERROR: WiFi connection failed!");
-  }
+  // Connect to WiFi: saved networks + built-in fallback, with rollback and
+  // a last-resort access point (see NetManager).
+  net.begin();
 
   // Setup OTA
   ArduinoOTA.setHostname(OTA_HOSTNAME);
@@ -273,13 +261,8 @@ void loop() {
 
   unsigned long now = millis();
 
-  // ---- WiFi reconnect ----
-  static unsigned long lastWifiCheck = 0;
-  if (WiFi.status() != WL_CONNECTED && now - lastWifiCheck >= WIFI_RECONNECT_INTERVAL) {
-    lastWifiCheck = now;
-    logger.addLog("WiFi disconnected, reconnecting...");
-    WiFi.reconnect();
-  }
+  // ---- WiFi: reconnect, access-point fallback, settings rollback ----
+  net.loop();
 
   // ---- Periodic temperature read ----
   // Non-blocking: start a reading on schedule, then poll() advances it each
