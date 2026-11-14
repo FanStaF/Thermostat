@@ -1,12 +1,17 @@
 #include "SystemLogger.h"
 
-SystemLogger::SystemLogger() {
-  logs.reserve(MAX_SYSTEM_LOGS);
+SystemLogger::SystemLogger() : head(0), count(0) {
 }
 
-void SystemLogger::addLog(String message) {
-  LogEntry log;
-  log.message = message;
+void SystemLogger::addLog(const String& message) {
+  LogEntry& log = entries[head];
+
+  if (message.length() > MAX_LOG_MESSAGE_LEN) {
+    log.message = message.substring(0, MAX_LOG_MESSAGE_LEN);
+    log.message += "...";
+  } else {
+    log.message = message;
+  }
   log.timestamp = millis();
 
   // Capture wall-clock too. time(nullptr) returns 0 (or near-zero) until NTP
@@ -14,21 +19,16 @@ void SystemLogger::addLog(String message) {
   time_t now = time(nullptr);
   log.epoch = (now >= 1000000000) ? now : 0;
 
-  logs.push_back(log);
+  head = (head + 1) % MAX_SYSTEM_LOGS;
+  if (count < MAX_SYSTEM_LOGS) count++;
 
-  if (logs.size() > MAX_SYSTEM_LOGS) {
-    logs.erase(logs.begin());
-  }
-
-  Serial.println(message);
+  Serial.println(log.message);
 }
 
-const std::vector<LogEntry>& SystemLogger::getLogs() const {
-  return logs;
-}
-
-size_t SystemLogger::getLogCount() const {
-  return logs.size();
+const LogEntry& SystemLogger::getLog(size_t i) const {
+  // Oldest entry sits at head when the buffer is full, at 0 otherwise.
+  size_t oldest = (count < MAX_SYSTEM_LOGS) ? 0 : head;
+  return entries[(oldest + i) % MAX_SYSTEM_LOGS];
 }
 
 // Global instance definition

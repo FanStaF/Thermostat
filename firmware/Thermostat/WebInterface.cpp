@@ -23,6 +23,63 @@ static String formatLogTime(const LogEntry& entry) {
   return String(buf);
 }
 
+// Escape text for safe inclusion in HTML element content / attribute values.
+static String htmlEscape(const String& in) {
+  String out;
+  out.reserve(in.length() + 16);
+  for (size_t i = 0; i < in.length(); i++) {
+    char c = in[i];
+    switch (c) {
+      case '&':  out += F("&amp;"); break;
+      case '<':  out += F("&lt;"); break;
+      case '>':  out += F("&gt;"); break;
+      case '"':  out += F("&quot;"); break;
+      case '\'': out += F("&#39;"); break;
+      default:   out += c;
+    }
+  }
+  return out;
+}
+
+// Strict float parse: the whole argument must be a finite number.
+static bool parseFloatArg(const String& s, float& out) {
+  if (s.length() == 0) return false;
+  char* end = nullptr;
+  double v = strtod(s.c_str(), &end);
+  if (end == s.c_str() || *end != '\0' || !isfinite(v)) return false;
+  out = (float)v;
+  return true;
+}
+
+// Strict int parse: the whole argument must be an integer.
+static bool parseIntArg(const String& s, int& out) {
+  if (s.length() == 0) return false;
+  char* end = nullptr;
+  long v = strtol(s.c_str(), &end, 10);
+  if (end == s.c_str() || *end != '\0') return false;
+  out = (int)v;
+  return true;
+}
+
+// Collapses runs of routine heartbeat / temp-post / command-poll messages so
+// only the newest of each kind is shown. Call newest-to-oldest.
+struct RepetitiveFilter {
+  bool seenHeartbeat = false, seenTempPost = false, seenPoll = false;
+  bool isRepetitive(const String& msg) {
+    if (msg.indexOf("eartbeat") >= 0) {
+      if (seenHeartbeat) return true;
+      seenHeartbeat = true;
+    } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0 || msg.indexOf("/temperature :") >= 0) {
+      if (seenTempPost) return true;
+      seenTempPost = true;
+    } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0 || msg.indexOf("/commands/pending") >= 0) {
+      if (seenPoll) return true;
+      seenPoll = true;
+    }
+    return false;
+  }
+};
+
 WebInterface::WebInterface(TemperatureManager& tempMgr, RelayController& relayCtrl,
                            ConfigManager& cfgMgr, ApiClient& apiCli, int& updateFreq, bool& useFahr)
   : server(WEB_SERVER_PORT),
@@ -36,17 +93,26 @@ WebInterface::WebInterface(TemperatureManager& tempMgr, RelayController& relayCt
 
 void WebInterface::begin() {
   // Setup web server routes
-  server.on("/", [this]() { this->handleRoot(); });
-  server.on("/status", [this]() { this->handleStatus(); });
-  server.on("/setmode", [this]() { this->handleSetMode(); });
-  server.on("/settype", [this]() { this->handleSetType(); });
-  server.on("/setthresholds", [this]() { this->handleSetThresholds(); });
-  server.on("/setfreq", [this]() { this->handleSetFrequency(); });
-  server.on("/setunit", [this]() { this->handleSetUnit(); });
-  server.on("/cleardata", [this]() { this->handleClearData(); });
-  server.on("/logs", [this]() { this->handleLogs(); });
-  server.on("/logs.json", [this]() { this->handleLogsJson(); });
-  server.on("/data", [this]() { this->handleData(); });
+  // Read-only pages: GET.
+  server.on("/", HTTP_GET, [this]() { this->handleRoot(); });
+  server.on("/status", HTTP_GET, [this]() { this->handleStatus(); });
+  server.on("/logs", HTTP_GET, [this]() { this->handleLogs(); });
+  server.on("/logs.json", HTTP_GET, [this]() { this->handleLogsJson(); });
+  server.on("/data", HTTP_GET, [this]() { this->handleData(); });
+
+  // State-changing actions: POST + custom header only. A custom header can't
+  // be sent cross-origin without a CORS preflight (which we never approve),
+  // so other web pages can't drive the relays through a LAN user's browser.
+  server.on("/setmode", HTTP_POST, [this]() { if (checkCsrf()) this->handleSetMode(); });
+  server.on("/settype", HTTP_POST, [this]() { if (checkCsrf()) this->handleSetType(); });
+  server.on("/setthresholds", HTTP_POST, [this]() { if (checkCsrf()) this->handleSetThresholds(); });
+  server.on("/setfreq", HTTP_POST, [this]() { if (checkCsrf()) this->handleSetFrequency(); });
+  server.on("/setunit", HTTP_POST, [this]() { if (checkCsrf()) this->handleSetUnit(); });
+  server.on("/cleardata", HTTP_POST, [this]() { if (checkCsrf()) this->handleClearData(); });
+
+  server.onNotFound([this]() { server.send(404, "text/plain", "Not found"); });
+
+  server.collectHeaders(CSRF_HEADER);
 
   server.begin();
   logger.addLog("Web server started");
@@ -54,6 +120,20 @@ void WebInterface::begin() {
 
 void WebInterface::handleClient() {
   server.handleClient();
+}
+
+bool WebInterface::checkCsrf() {
+  if (server.header(CSRF_HEADER) == CSRF_VALUE) return true;
+  server.send(403, "application/json", "{\"error\":\"Forbidden\"}");
+  return false;
+}
+
+void WebInterface::sendError(const String& message) {
+  JsonDocument doc;
+  doc["error"] = message;
+  String out;
+  serializeJson(doc, out);
+  server.send(400, "application/json", out);
 }
 
 // Store large static content in PROGMEM to avoid RAM usage
@@ -84,6 +164,7 @@ static const char BODY_HTML[] PROGMEM = R"rawliteral(<h1>Thermostat Control</h1>
 <button id='unitToggle' class='btn-auto' onclick='toggleUnit()' style='padding:4px 10px;font-size:12px;'>°F</button>
 </div>
 <div class='temp'>Temperature: <span id='temp'>--</span><span id='unit'>&deg;C</span></div>
+<div id='fault' style='display:none;margin:10px auto;max-width:600px;padding:10px;background:#f44336;color:#fff;border-radius:6px;font-weight:bold;'>SENSOR FAULT: no valid temperature. AUTO relays are OFF until the sensor recovers.</div>
 <table>
 <tr><th>Relay</th><th>State</th><th>Type</th><th>Mode</th><th>ON</th><th>OFF</th><th>Actions</th></tr>
 <tr><td><b>1</b></td><td><span class='status-cell' id='status0'>--</span></td>
@@ -120,17 +201,18 @@ static const char BODY_HTML[] PROGMEM = R"rawliteral(<h1>Thermostat Control</h1>
 static const char JS_CONTENT[] PROGMEM = R"rawliteral(<script src='https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js'></script>
 <script>
 const editedInputs=new Set();let useFahrenheit=false;
+async function post(u){const r=await fetch(u,{method:'POST',headers:{'X-Requested-With':'thermostat'}});const d=await r.json();if(!r.ok){alert(d.error||'Request failed');await updateStatus();return null}return d}
 function c2f(c){return(c*9/5)+32}
 function f2c(f){return(f-32)*5/9}
-async function toggleUnit(){try{useFahrenheit=!useFahrenheit;const r=await fetch('/setunit?fahrenheit='+(useFahrenheit?'1':'0'));updateUnitLabels();updateFromData(await r.json())}catch(e){await updateStatus()}}
+async function toggleUnit(){try{useFahrenheit=!useFahrenheit;const d=await post('/setunit?fahrenheit='+(useFahrenheit?'1':'0'));updateUnitLabels();if(d)updateFromData(d)}catch(e){await updateStatus()}}
 function updateUnitLabels(){const u=useFahrenheit?'°F':'°C';document.getElementById('unit').innerHTML=u;document.getElementById('unitToggle').innerHTML=useFahrenheit?'°C':'°F';document.querySelectorAll('.unit-label').forEach(el=>el.innerHTML=u)}
 window.addEventListener('DOMContentLoaded',()=>{for(let i=0;i<4;i++){document.getElementById('on'+i).addEventListener('input',e=>editedInputs.add(e.target.id));document.getElementById('off'+i).addEventListener('input',e=>editedInputs.add(e.target.id))}});
-async function setMode(relay,mode){try{const r=await fetch('/setmode?relay='+relay+'&mode='+mode);updateFromData(await r.json())}catch(e){await updateStatus()}}
-async function setType(relay){try{const t=document.getElementById('type'+relay).value;const r=await fetch('/settype?relay='+relay+'&type='+t);updateFromData(await r.json())}catch(e){await updateStatus()}}
-async function saveThreshold(relay){try{let on=parseFloat(document.getElementById('on'+relay).value);let off=parseFloat(document.getElementById('off'+relay).value);if(useFahrenheit){on=f2c(on);off=f2c(off)}const r=await fetch('/setthresholds?relay='+relay+'&on='+on+'&off='+off);editedInputs.delete('on'+relay);editedInputs.delete('off'+relay);updateFromData(await r.json())}catch(e){await updateStatus()}}
-async function setFrequency(){try{const f=parseInt(document.getElementById('freq').value);if(isNaN(f)||f<5){alert('Min 5s');return}if(f>300){alert('Max 300s');return}const r=await fetch('/setfreq?sec='+f);updateFromData(await r.json())}catch(e){await updateStatus()}}
-async function clearData(){if(!confirm('Clear all data?'))return;const s=document.getElementById('clearStatus');s.innerText='Clearing...';try{const r=await fetch('/cleardata');const d=await r.json();s.innerText=d.message||'Done';setTimeout(()=>{s.innerText='';updateChart()},3000)}catch(e){s.innerText='Error'}}
-function updateFromData(d){if(d.useFahrenheit!==undefined&&d.useFahrenheit!==useFahrenheit){useFahrenheit=d.useFahrenheit;updateUnitLabels()}const dt=useFahrenheit?c2f(d.temp):d.temp;document.getElementById('temp').innerText=dt.toFixed(1);if(d.freq){const fi=document.getElementById('freq');if(document.activeElement!==fi)fi.value=d.freq}for(let i=0;i<4;i++){const st=document.getElementById('status'+i);st.innerText=d.relays[i].state?'ON':'OFF';st.className='status-cell '+(d.relays[i].state?'on':'off');document.getElementById('mode'+i).innerText=d.relays[i].mode;const ts=document.getElementById('type'+i);if(document.activeElement!==ts&&d.relays[i].type)ts.value=d.relays[i].type;const oi=document.getElementById('on'+i),fi=document.getElementById('off'+i);const don=useFahrenheit?c2f(d.relays[i].tempOn):d.relays[i].tempOn;const doff=useFahrenheit?c2f(d.relays[i].tempOff):d.relays[i].tempOff;if(document.activeElement!==oi&&!editedInputs.has('on'+i))oi.value=don.toFixed(1);if(document.activeElement!==fi&&!editedInputs.has('off'+i))fi.value=doff.toFixed(1)}}
+async function setMode(relay,mode){try{const d=await post('/setmode?relay='+relay+'&mode='+mode);if(d)updateFromData(d)}catch(e){await updateStatus()}}
+async function setType(relay){try{const t=document.getElementById('type'+relay).value;const d=await post('/settype?relay='+relay+'&type='+t);if(d)updateFromData(d)}catch(e){await updateStatus()}}
+async function saveThreshold(relay){try{let on=parseFloat(document.getElementById('on'+relay).value);let off=parseFloat(document.getElementById('off'+relay).value);if(isNaN(on)||isNaN(off)){alert('Enter both ON and OFF temperatures');return}if(useFahrenheit){on=f2c(on);off=f2c(off)}const d=await post('/setthresholds?relay='+relay+'&on='+on.toFixed(2)+'&off='+off.toFixed(2));if(d){editedInputs.delete('on'+relay);editedInputs.delete('off'+relay);updateFromData(d)}}catch(e){await updateStatus()}}
+async function setFrequency(){try{const f=parseInt(document.getElementById('freq').value);if(isNaN(f)||f<5){alert('Min 5s');return}if(f>300){alert('Max 300s');return}const d=await post('/setfreq?sec='+f);if(d)updateFromData(d)}catch(e){await updateStatus()}}
+async function clearData(){if(!confirm('Clear all data?'))return;const s=document.getElementById('clearStatus');s.innerText='Clearing...';try{const d=await post('/cleardata');s.innerText=d?(d.message||'Done'):'Error';setTimeout(()=>{s.innerText='';updateChart()},3000)}catch(e){s.innerText='Error'}}
+function updateFromData(d){if(d.useFahrenheit!==undefined&&d.useFahrenheit!==useFahrenheit){useFahrenheit=d.useFahrenheit;updateUnitLabels()}const te=document.getElementById('temp');if(typeof d.temp!=='number'){te.innerText='--'}else{te.innerText=(useFahrenheit?c2f(d.temp):d.temp).toFixed(1)}const fe=document.getElementById('fault');if(fe)fe.style.display=d.sensorFault?'block':'none';if(d.freq){const fi=document.getElementById('freq');if(document.activeElement!==fi)fi.value=d.freq}for(let i=0;i<4;i++){const st=document.getElementById('status'+i);st.innerText=d.relays[i].state?'ON':'OFF';st.className='status-cell '+(d.relays[i].state?'on':'off');document.getElementById('mode'+i).innerText=d.relays[i].mode;const ts=document.getElementById('type'+i);if(document.activeElement!==ts&&d.relays[i].type)ts.value=d.relays[i].type;const oi=document.getElementById('on'+i),fi=document.getElementById('off'+i);const don=useFahrenheit?c2f(d.relays[i].tempOn):d.relays[i].tempOn;const doff=useFahrenheit?c2f(d.relays[i].tempOff):d.relays[i].tempOff;if(document.activeElement!==oi&&!editedInputs.has('on'+i))oi.value=don.toFixed(1);if(document.activeElement!==fi&&!editedInputs.has('off'+i))fi.value=doff.toFixed(1)}}
 async function updateStatus(){try{const r=await fetch('/status');updateFromData(await r.json())}catch(e){}}
 const ctx=document.getElementById('tempChart').getContext('2d');
 const tempChart=new Chart(ctx,{type:'line',data:{labels:[],datasets:[{label:'Temp',data:[],borderColor:'#2196F3',backgroundColor:'rgba(33,150,243,0.1)',borderWidth:2,tension:0.4,pointRadius:1}]},options:{responsive:true,maintainAspectRatio:true,interaction:{intersect:false,mode:'index'},scales:{y:{beginAtZero:false},x:{ticks:{maxRotation:45,autoSkip:true,maxTicksLimit:12}}},plugins:{legend:{display:true}},animation:false}});
@@ -160,7 +242,9 @@ void WebInterface::handleStatus() {
   // avoid the heap-fragmenting String concat that the /status endpoint hits
   // every 2 seconds from the browser.
   JsonDocument doc;
-  doc["temp"] = tempManager.getCurrentTemp();
+  if (tempManager.hasValidTemp()) doc["temp"] = tempManager.getCurrentTemp();
+  else doc["temp"] = nullptr;
+  doc["sensorFault"] = relayController.hasSensorFault();
   doc["freq"] = updateFrequency;
   doc["useFahrenheit"] = useFahrenheit;
   JsonArray relays = doc["relays"].to<JsonArray>();
@@ -178,72 +262,88 @@ void WebInterface::handleStatus() {
   server.send(200, "application/json", out);
 }
 
-void WebInterface::handleSetMode() {
-  if (server.hasArg("relay") && server.hasArg("mode")) {
-    int relay = server.arg("relay").toInt();
-    String mode = server.arg("mode");
-    if (relay >= 0 && relay < 4) {
-      if (mode == "AUTO") relayController.setRelayMode(relay, AUTO);
-      else if (mode == "ON") relayController.setRelayMode(relay, MANUAL_ON);
-      else if (mode == "OFF") relayController.setRelayMode(relay, MANUAL_OFF);
-      logger.addLog("Relay " + String(relay + 1) + " mode: " + mode);
-      relayController.applyRelayLogic(tempManager.getCurrentTemp());
-      configManager.saveSettings(updateFrequency, useFahrenheit);
-      apiClient.markRelayDirty(relay);
-    }
+// Parse and range-check the "relay" argument (0-3). Sends 400 on failure.
+bool WebInterface::parseRelayArg(int& relay) {
+  if (!parseIntArg(server.arg("relay"), relay) || relay < 0 || relay > 3) {
+    sendError("Invalid relay");
+    return false;
   }
+  return true;
+}
+
+void WebInterface::handleSetMode() {
+  int relay;
+  if (!parseRelayArg(relay)) return;
+  Mode mode;
+  if (!RelayController::parseMode(server.arg("mode"), mode)) {
+    sendError("Invalid mode");
+    return;
+  }
+  relayController.setRelayMode(relay, mode);
+  logger.addLog("Relay " + String(relay + 1) + " mode: " + RelayController::modeToString(mode));
+  relayController.applyRelayLogic(tempManager.getCurrentTemp());
+  configManager.saveSettings(updateFrequency, useFahrenheit);
+  apiClient.markRelayDirty(relay);
   handleStatus();
 }
 
 void WebInterface::handleSetType() {
-  if (server.hasArg("relay") && server.hasArg("type")) {
-    int relay = server.arg("relay").toInt();
-    String type = server.arg("type");
-    if (relay >= 0 && relay < 4) {
-      if (type == "HEATING") relayController.setRelayType(relay, HEATING);
-      else if (type == "COOLING") relayController.setRelayType(relay, COOLING);
-      else if (type == "GENERIC") relayController.setRelayType(relay, GENERIC);
-      else if (type == "MANUAL_ONLY") relayController.setRelayType(relay, MANUAL_ONLY);
-      relayController.applyRelayLogic(tempManager.getCurrentTemp());
-      configManager.saveSettings(updateFrequency, useFahrenheit);
-      apiClient.markRelayDirty(relay);
-    }
+  int relay;
+  if (!parseRelayArg(relay)) return;
+  RelayType type;
+  if (!RelayController::parseType(server.arg("type"), type)) {
+    sendError("Invalid type");
+    return;
   }
+  relayController.setRelayType(relay, type);
+  logger.addLog("Relay " + String(relay + 1) + " type: " + RelayController::typeToString(type));
+  relayController.applyRelayLogic(tempManager.getCurrentTemp());
+  configManager.saveSettings(updateFrequency, useFahrenheit);
+  apiClient.markRelayDirty(relay);
   handleStatus();
 }
 
 void WebInterface::handleSetThresholds() {
-  if (server.hasArg("relay") && server.hasArg("on") && server.hasArg("off")) {
-    int relay = server.arg("relay").toInt();
-    if (relay >= 0 && relay < 4) {
-      float tempOn = server.arg("on").toFloat();
-      float tempOff = server.arg("off").toFloat();
-      relayController.setTempThresholds(relay, tempOn, tempOff);
-      logger.addLog("Relay " + String(relay + 1) + " thresholds: ON=" +
-                    String(tempOn, 1) + "C, OFF=" + String(tempOff, 1) + "C");
-      relayController.applyRelayLogic(tempManager.getCurrentTemp());
-      configManager.saveSettings(updateFrequency, useFahrenheit);
-      apiClient.markRelayDirty(relay);
-    }
+  int relay;
+  if (!parseRelayArg(relay)) return;
+  float tempOn, tempOff;
+  if (!parseFloatArg(server.arg("on"), tempOn) || !parseFloatArg(server.arg("off"), tempOff) ||
+      !RelayController::isValidThreshold(tempOn) || !RelayController::isValidThreshold(tempOff)) {
+    sendError("Thresholds must be numbers between " + String(THRESHOLD_MIN, 0) +
+              " and " + String(THRESHOLD_MAX, 0) + " C");
+    return;
   }
+  if (!relayController.setTempThresholds(relay, tempOn, tempOff)) {
+    sendError(String("Invalid thresholds: ") +
+              RelayController::thresholdRule(relayController.getRelayType(relay)));
+    return;
+  }
+  logger.addLog("Relay " + String(relay + 1) + " thresholds: ON=" +
+                String(tempOn, 1) + "C, OFF=" + String(tempOff, 1) + "C");
+  relayController.applyRelayLogic(tempManager.getCurrentTemp());
+  configManager.saveSettings(updateFrequency, useFahrenheit);
+  apiClient.markRelayDirty(relay);
   handleStatus();
 }
 
 void WebInterface::handleSetFrequency() {
-  if (server.hasArg("sec")) {
-    int sec = server.arg("sec").toInt();
-    if (sec < 5) sec = 5;
-    if (sec > 300) sec = 300;
-    updateFrequency = sec;
-    logger.addLog("Update frequency set to " + String(sec) + "s");
-    configManager.saveSettings(updateFrequency, useFahrenheit);
+  int sec;
+  if (!parseIntArg(server.arg("sec"), sec)) {
+    sendError("Invalid frequency");
+    return;
   }
+  if (sec < MIN_UPDATE_FREQUENCY) sec = MIN_UPDATE_FREQUENCY;
+  if (sec > MAX_UPDATE_FREQUENCY) sec = MAX_UPDATE_FREQUENCY;
+  updateFrequency = sec;
+  logger.addLog("Update frequency set to " + String(sec) + "s");
+  configManager.saveSettings(updateFrequency, useFahrenheit);
   handleStatus();
 }
 
 void WebInterface::handleClearData() {
   if (LittleFS.exists(LOG_FILE)) {
     LittleFS.remove(LOG_FILE);
+    tempManager.onLogCleared();
     logger.addLog("Temperature data cleared by user");
     server.send(200, "application/json", "{\"message\":\"Data cleared successfully\"}");
   } else {
@@ -252,46 +352,32 @@ void WebInterface::handleClearData() {
 }
 
 void WebInterface::handleSetUnit() {
-  if (server.hasArg("fahrenheit")) {
-    useFahrenheit = server.arg("fahrenheit") == "1";
-    logger.addLog("Unit changed to " + String(useFahrenheit ? "Fahrenheit" : "Celsius"));
-    configManager.saveSettings(updateFrequency, useFahrenheit);
+  String f = server.arg("fahrenheit");
+  if (f != "0" && f != "1") {
+    sendError("Invalid unit");
+    return;
   }
+  useFahrenheit = (f == "1");
+  logger.addLog("Unit changed to " + String(useFahrenheit ? "Fahrenheit" : "Celsius"));
+  configManager.saveSettings(updateFrequency, useFahrenheit);
   server.send(200, "application/json", "{\"useFahrenheit\":" + String(useFahrenheit ? "true" : "false") + "}");
 }
 
 void WebInterface::handleLogs() {
   bool filterRepetitive = !server.hasArg("all");
-  int page = server.hasArg("page") ? server.arg("page").toInt() : 1;
-  if (page < 1) page = 1;
+  int page = 1;
+  if (!parseIntArg(server.arg("page"), page) || page < 1) page = 1;
   const int logsPerPage = 100;
 
-  const auto& logs = logger.getLogs();
+  const size_t logCount = logger.getLogCount();
 
-  // Build filtered index list (one entry = one int, far cheaper than building HTML eagerly)
+  // Build filtered index list, newest first. Indices are into the logger's
+  // age order (0 = oldest).
   std::vector<int> filteredIndices;
-  int lastHeartbeat = -1;
-  int lastTempPost = -1;
-  int lastCommandPoll = -1;
-
-  for (int i = logs.size() - 1; i >= 0; i--) {
-    const String& msg = logs[i].message;
-    bool isRepetitive = false;
-
-    if (filterRepetitive) {
-      if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0 || msg.indexOf("/heartbeat") >= 0) {
-        if (lastHeartbeat >= 0) isRepetitive = true;
-        else lastHeartbeat = i;
-      } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0 || msg.indexOf("/temperature :") >= 0) {
-        if (lastTempPost >= 0) isRepetitive = true;
-        else lastTempPost = i;
-      } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0 || msg.indexOf("/commands/pending") >= 0) {
-        if (lastCommandPoll >= 0) isRepetitive = true;
-        else lastCommandPoll = i;
-      }
-    }
-
-    if (!isRepetitive) {
+  filteredIndices.reserve(logCount);
+  RepetitiveFilter filter;
+  for (int i = (int)logCount - 1; i >= 0; i--) {
+    if (!filterRepetitive || !filter.isRepetitive(logger.getLog(i).message)) {
       filteredIndices.push_back(i);
     }
   }
@@ -320,7 +406,7 @@ void WebInterface::handleLogs() {
     ".filter{margin:10px 0;padding:10px;background:#252526;border-radius:5px;}"
     "</style></head><body>"));
 
-  server.sendContent("<h2>System Logs (" + String(logger.getLogCount()) + " total)</h2>");
+  server.sendContent("<h2>System Logs (" + String(logCount) + " total)</h2>");
   server.sendContent_P(PSTR("<a href='/' style='color:#2196F3;'>Back to Main</a><div class='filter'>"));
   if (filterRepetitive) {
     server.sendContent_P(PSTR("Showing filtered logs (hiding repetitive heartbeats/posts) - <a href='/logs?all=1'>Show All</a>"));
@@ -339,15 +425,18 @@ void WebInterface::handleLogs() {
   server.sendContent_P(PSTR("</div>"));
 
   for (int i = startIdx; i < endIdx; i++) {
-    int logIdx = filteredIndices[i];
-    const String& msg = logs[logIdx].message;
+    const LogEntry& entry = logger.getLog(filteredIndices[i]);
+    const String& msg = entry.message;
 
-    String logClass = "log";
-    if (msg.indexOf("Relay") >= 0) logClass += " relay";
-    else if (msg.indexOf("ERROR") >= 0 || msg.indexOf("Error") >= 0 || msg.indexOf("failed") >= 0) logClass += " error";
-    else if (msg.indexOf("command") >= 0 || msg.indexOf("Command") >= 0) logClass += " cmd";
+    const char* logClass = "log";
+    if (msg.indexOf("Relay") >= 0) logClass = "log relay";
+    else if (msg.indexOf("ERROR") >= 0 || msg.indexOf("Error") >= 0 || msg.indexOf("failed") >= 0 ||
+             msg.indexOf("FAULT") >= 0) logClass = "log error";
+    else if (msg.indexOf("command") >= 0 || msg.indexOf("Command") >= 0) logClass = "log cmd";
 
-    server.sendContent("<div class='" + logClass + "'>[" + formatLogTime(logs[logIdx]) + "] " + msg + "</div>");
+    // Log text can contain request arguments — always escape it.
+    server.sendContent(String("<div class='") + logClass + "'>[" + formatLogTime(entry) + "] " +
+                       htmlEscape(msg) + "</div>");
     if (((i - startIdx) & 0x0F) == 0) yield(); // feed watchdog every 16 entries
   }
 
@@ -356,69 +445,48 @@ void WebInterface::handleLogs() {
 }
 
 void WebInterface::handleLogsJson() {
-  // Return logs as JSON for remote access
-  int limit = server.hasArg("limit") ? server.arg("limit").toInt() : 100;
+  // Return logs as JSON for remote access (read by the backend dashboard
+  // from the user's browser, hence the CORS header).
+  int limit = 100;
+  if (!parseIntArg(server.arg("limit"), limit)) limit = 100;
   if (limit < 1) limit = 1;
-  if (limit > 500) limit = 500;
+  if (limit > (int)MAX_SYSTEM_LOGS) limit = MAX_SYSTEM_LOGS;
 
   bool filterRepetitive = !server.hasArg("all");
+  const size_t logCount = logger.getLogCount();
 
-  const auto& logs = logger.getLogs();
-
-  // Add CORS headers for cross-origin access from dashboard
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET");
 
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "application/json", "");
-  server.sendContent("{\"total\":");
-  server.sendContent(String(logs.size()));
-  server.sendContent(",\"logs\":[");
+  server.sendContent("{\"total\":" + String(logCount) + ",\"logs\":[");
 
-  int lastHeartbeat = -1;
-  int lastTempPost = -1;
-  int lastCommandPoll = -1;
+  RepetitiveFilter filter;
   int count = 0;
   bool first = true;
 
-  for (int i = logs.size() - 1; i >= 0 && count < limit; i--) {
-    const String& msg = logs[i].message;
-    bool isRepetitive = false;
+  for (int i = (int)logCount - 1; i >= 0 && count < limit; i--) {
+    const LogEntry& entry = logger.getLog(i);
+    if (filterRepetitive && filter.isRepetitive(entry.message)) continue;
 
-    if (filterRepetitive) {
-      if (msg.indexOf("Heartbeat") >= 0 || msg.indexOf("heartbeat") >= 0 || msg.indexOf("/heartbeat") >= 0) {
-        if (lastHeartbeat >= 0) isRepetitive = true;
-        else lastHeartbeat = i;
-      } else if (msg.indexOf("Posted temp") >= 0 || msg.indexOf("Temperature posted") >= 0 || msg.indexOf("/temperature :") >= 0) {
-        if (lastTempPost >= 0) isRepetitive = true;
-        else lastTempPost = i;
-      } else if (msg.indexOf("No pending commands") >= 0 || msg.indexOf("Polling commands") >= 0 || msg.indexOf("/commands/pending") >= 0) {
-        if (lastCommandPoll >= 0) isRepetitive = true;
-        else lastCommandPoll = i;
-      }
-    }
-
-    if (!isRepetitive) {
-      if (!first) server.sendContent(",");
-      first = false;
-
-      // Escape JSON string
-      String escaped = logs[i].message;
-      escaped.replace("\\", "\\\\");
-      escaped.replace("\"", "\\\"");
-
-      server.sendContent("{\"ts\":");
-      server.sendContent(String(logs[i].timestamp / 1000));
-      server.sendContent(",\"time\":\"");
-      server.sendContent(formatLogTime(logs[i]));
-      server.sendContent("\",\"msg\":\"");
-      server.sendContent(escaped);
-      server.sendContent("\"}");
-      count++;
-    }
+    JsonDocument doc;
+    doc["ts"] = entry.timestamp / 1000;
+    doc["time"] = formatLogTime(entry);
+    doc["msg"] = entry.message;
+    // Note: serializeJson(doc, String&) replaces the string's contents, so
+    // the separator must be sent on its own.
+    if (!first) server.sendContent(",");
+    first = false;
+    String item;
+    item.reserve(measureJson(doc) + 1);
+    serializeJson(doc, item);
+    server.sendContent(item);
+    count++;
   }
 
   server.sendContent("]}");
+  server.sendContent("");
 }
 
 void WebInterface::handleData() {
@@ -442,12 +510,13 @@ void WebInterface::handleData() {
 
   // Calculate lines needed for 24 hours based on update frequency
   // Cap at MAX_DATA_LINES for memory safety
-  int linesFor24h = (86400 / updateFrequency);
+  int freq = updateFrequency > 0 ? updateFrequency : DEFAULT_UPDATE_FREQUENCY;
+  int linesFor24h = 86400 / freq;
   if (linesFor24h > MAX_DATA_LINES) linesFor24h = MAX_DATA_LINES;
   if (linesFor24h < MIN_DATA_LINES) linesFor24h = MIN_DATA_LINES;
 
   // For large files, seek to approximately the right position
-  long estimatedBytes = linesFor24h * BYTES_PER_LINE_ESTIMATE;
+  size_t estimatedBytes = (size_t)linesFor24h * BYTES_PER_LINE_ESTIMATE;
   if (fileSize > estimatedBytes) {
     f.seek(fileSize - estimatedBytes);
     f.readStringUntil('\n'); // Skip partial line
@@ -459,7 +528,7 @@ void WebInterface::handleData() {
 
   // Stream data line by line
   int lineCount = 0;
-  String line = "";
+  String line;
 
   while (f.available() && lineCount < linesFor24h) {
     line = f.readStringUntil('\n');

@@ -43,8 +43,8 @@ class AlertsController extends Controller
             ->where('user_id', $targetUser->id)
             ->get();
 
-        // Get available devices
-        $devices = Device::all();
+        // Devices the target user may subscribe to
+        $devices = $targetUser->isAdmin() ? Device::all() : $targetUser->devices()->get();
 
         // Get all users (for admin dropdown)
         $users = $user->role === 'admin' ? User::all() : collect([$user]);

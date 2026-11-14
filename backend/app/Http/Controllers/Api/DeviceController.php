@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Device;
 use App\Models\DeviceSetting;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class DeviceController extends Controller
 {
@@ -27,6 +29,27 @@ class DeviceController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        // The shared API key is compiled into every firmware image, so it can
+        // only be trusted to create NEW devices. Re-registering an existing
+        // MAC (which revokes its tokens and issues a new one) additionally
+        // requires that device's current token, or a one-time admin approval.
+        $existing = Device::where('mac_address', $request->mac_address)->first();
+        if ($existing && !$existing->reregistration_allowed) {
+            $presented = $request->bearerToken()
+                ? PersonalAccessToken::findToken($request->bearerToken())
+                : null;
+            $ownsToken = $presented
+                && $presented->tokenable instanceof Device
+                && (int) $presented->tokenable->id === (int) $existing->id;
+
+            if (!$ownsToken) {
+                return response()->json([
+                    'error' => 'Device already registered. Present the current device token, '
+                        . 'or have an admin allow re-registration on the dashboard.',
+                ], 403);
+            }
+        }
+
         $device = Device::updateOrCreate(
             ['mac_address' => $request->mac_address],
             [
@@ -35,6 +58,12 @@ class DeviceController extends Controller
                 'firmware_version' => $request->firmware_version,
                 'name' => $request->name ?? $request->hostname,
                 'last_seen_at' => now(),
+                // The device re-registers on every boot; any fault reported
+                // before the reboot is stale. The first heartbeat (seconds
+                // after registering) reports the current state.
+                'sensor_fault' => false,
+                'last_good_reading_at' => null,
+                'reregistration_allowed' => false,
             ]
         );
 
@@ -64,10 +93,42 @@ class DeviceController extends Controller
      */
     public function heartbeat(Request $request, Device $device)
     {
-        $device->update([
-            'last_seen_at' => now(),
-            'ip_address' => $request->ip_address ?? $device->ip_address,
+        $validator = Validator::make($request->all(), [
+            'ip_address' => 'nullable|ip',
+            'firmware_version' => 'nullable|string|max:50',
+            'sensor_fault' => 'nullable|boolean',
+            // Capped at the firmware's millis() wrap (~49.7 days) so the
+            // derived timestamp always fits the TIMESTAMP column.
+            'seconds_since_good_reading' => 'nullable|integer|min:0|max:4294967',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $validated = $validator->validated();
+        $update = ['last_seen_at' => now()];
+
+        // Plain fields: update only when sent with a value.
+        foreach (['ip_address', 'firmware_version'] as $field) {
+            if (isset($validated[$field]) && $validated[$field] !== '') {
+                $update[$field] = $validated[$field];
+            }
+        }
+
+        // Fault fields (firmware >= 2.2.0; older firmware omits them, which
+        // leaves the stored values alone). sensor_fault: null is ignored.
+        // seconds_since_good_reading: an explicit null means "no good reading
+        // since boot" and clears the timestamp.
+        if (isset($validated['sensor_fault'])) {
+            $update['sensor_fault'] = (bool) $validated['sensor_fault'];
+        }
+        if (array_key_exists('seconds_since_good_reading', $validated)) {
+            $seconds = $validated['seconds_since_good_reading'];
+            $update['last_good_reading_at'] = $seconds === null ? null : now()->subSeconds((int) $seconds);
+        }
+
+        $device->update($update);
 
         return response()->json(['message' => 'Heartbeat updated']);
     }
@@ -77,11 +138,26 @@ class DeviceController extends Controller
      */
     public function index()
     {
-        return response()->json(
-            Device::with(['settings', 'relays.currentState'])
-                ->withCount('temperatureReadings')
-                ->get()
-        );
+        $user = auth()->user();
+        $query = Device::with(['settings', 'relays.currentState'])
+            ->withCount('temperatureReadings');
+        if (!$user->isAdmin()) {
+            $query->whereIn('id', $user->devices()->pluck('devices.id'));
+        }
+
+        return response()->json($query->get());
+    }
+
+    /**
+     * Admin: let an existing device register again without its current token
+     * (e.g. after its flash, and stored token, was erased). One-time; cleared
+     * by the next successful registration.
+     */
+    public function allowReregistration(Device $device)
+    {
+        $device->update(['reregistration_allowed' => true]);
+
+        return response()->json(['message' => 'Device may re-register once']);
     }
 
     /**
@@ -134,6 +210,13 @@ class DeviceController extends Controller
      */
     public function dashboardData(Device $device)
     {
+        // Reached by the device itself (device.scope) or by a logged-in user's
+        // browser (web route); users must have access to this device.
+        $user = auth()->user();
+        if ($user instanceof User && !$user->canAccessDevice($device->id)) {
+            return response()->json(['error' => 'You do not have permission to access this device'], 403);
+        }
+
         $device->load([
             'relays.currentState',
             'temperatureReadings' => fn ($q) => $q->latest('recorded_at')->limit(1),
@@ -142,6 +225,8 @@ class DeviceController extends Controller
         return response()->json([
             'latestReading' => $device->temperatureReadings->first(),
             'relays' => $device->relays,
+            'sensorFault' => $device->has_active_sensor_fault,
+            'sensorFaultMessage' => $device->sensor_fault_message,
         ]);
     }
 
@@ -163,7 +248,7 @@ class DeviceController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'update_frequency' => 'nullable|integer|min:1|max:60',
+            'update_frequency' => 'nullable|integer|min:5|max:300',
             'use_fahrenheit' => 'nullable|boolean',
             'timezone' => 'nullable|string|max:50',
         ]);

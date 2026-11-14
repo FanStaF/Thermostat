@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api.key' => \App\Http\Middleware\ValidateApiKey::class,
             'admin' => \App\Http\Middleware\EnsureUserIsAdmin::class,
             'device.scope' => \App\Http\Middleware\EnsureDeviceTokenMatchesRoute::class,
+            'user.only' => \App\Http\Middleware\EnsureAuthenticatedUser::class,
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {

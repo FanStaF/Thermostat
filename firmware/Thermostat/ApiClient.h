@@ -14,7 +14,8 @@ public:
 
   void begin();
   bool registerDevice(const String& hostname, const String& macAddress, const String& ipAddress, const String& firmwareVersion);
-  bool sendHeartbeat();
+  // secondsSinceGoodReading < 0 means "never had a good reading".
+  bool sendHeartbeat(bool sensorFault, long secondsSinceGoodReading);
   bool sendTemperatureReading(float temperature, int sensorId = 0);
   bool sendRelayState(int relayNumber, bool state, const String& mode, float tempOn, float tempOff, const String& name = "");
   bool pollCommands();

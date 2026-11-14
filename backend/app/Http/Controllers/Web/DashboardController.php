@@ -64,6 +64,15 @@ class DashboardController extends Controller
             abort(403, 'You do not have permission to access this device.');
         }
 
+        // The page assumes settings exist; create defaults for any device
+        // that somehow lacks a row instead of throwing a 500.
+        if (!$device->settings()->exists()) {
+            $device->settings()->create([
+                'update_frequency' => 5,
+                'use_fahrenheit' => false,
+                'timezone' => 'UTC',
+            ]);
+        }
         $device->load(['settings', 'relays.currentState']);
 
         $range = $request->get('range', '24h');

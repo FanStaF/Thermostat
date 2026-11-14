@@ -9,11 +9,14 @@ static const int RELAY_PINS[4] = { D1, D5, D6, D7 };
 
 // ---- System Configuration ----
 constexpr int DEFAULT_UPDATE_FREQUENCY = 5; // seconds
-constexpr size_t MAX_SYSTEM_LOGS = 500;
+constexpr int MIN_UPDATE_FREQUENCY = 5;     // seconds — one validated read takes ~2.3s
+constexpr int MAX_UPDATE_FREQUENCY = 300;   // seconds
+constexpr size_t MAX_SYSTEM_LOGS = 120;     // fixed ring buffer; keep small, heap is ~45KB
+constexpr size_t MAX_LOG_MESSAGE_LEN = 160; // longer messages are truncated
 
 // ---- API Configuration ----
 // API_URL is defined in Credentials.h
-#define FIRMWARE_VERSION "2.1.0"
+#define FIRMWARE_VERSION "2.3.0"
 constexpr int API_HEARTBEAT_INTERVAL = 60000;  // ms (1 minute)
 constexpr int API_COMMAND_POLL_INTERVAL = 30000;  // ms (30 seconds)
 constexpr int HTTP_REQUEST_TIMEOUT = 5000;     // ms — kept short so blocking calls don't starve the web server
@@ -21,10 +24,17 @@ constexpr int TLS_RX_BUFFER = 1024;            // bytes — TLS fragment input b
 constexpr int TLS_TX_BUFFER = 4096;            // bytes — TLS output buffer (handshake needs >2K)
 constexpr unsigned long WIFI_RECONNECT_INTERVAL = 30000; // ms between reconnect attempts
 constexpr unsigned long HEAP_LOG_INTERVAL = 300000;      // ms (5 min) periodic heap snapshot
+constexpr unsigned long REGISTER_RETRY_INTERVAL = 60000; // ms between backend registration retries
 
 // ---- File Paths ----
 #define CONFIG_FILE "/config.json"
+#define CONFIG_TMP_FILE "/config.tmp"
 #define LOG_FILE "/temp_log.csv"
+#define LOG_TMP_FILE "/temp_log.tmp"
+constexpr size_t LOG_FILE_MAX_BYTES = 64 * 1024;  // trim temp log when it grows past this
+constexpr size_t LOG_FILE_KEEP_BYTES = 16 * 1024; // ...keeping roughly this much of the newest data
+constexpr size_t FS_MIN_FREE_BYTES = 32 * 1024;   // stop appending to the log below this much free space
+constexpr int FS_INFO_CHECK_EVERY = 50;           // re-check free space every N log appends
 
 // ---- OTA Configuration ----
 #define OTA_HOSTNAME "thermostat"
@@ -33,9 +43,19 @@ constexpr unsigned long HEAP_LOG_INTERVAL = 300000;      // ms (5 min) periodic 
 constexpr int TEMP_NUM_SAMPLES = 3;
 constexpr float TEMP_MAX_DIFF = 2.0;        // Max difference between samples in °C
 constexpr float TEMP_MIN_VALID = -50.0;     // DS18B20 can read -55°C but let's be safe
-constexpr float TEMP_MAX_VALID = 85.0;      // DS18B20 max is 125°C but 85°C is realistic
-constexpr int TEMP_SAMPLE_DELAY = 100;      // ms between samples
+constexpr float TEMP_MAX_VALID = 85.0;      // exclusive: 85.0 is the DS18B20 power-on-reset value
+constexpr float TEMP_POWER_ON_VALUE = 85.0; // a reading of exactly this means a reset/failed conversion
 constexpr int TEMP_RETRY_DELAY = 200;       // ms before retry
+// Fail-safe: AUTO relays go OFF once the sensor has failed at least
+// SENSOR_FAILSAFE_MIN_FAILS times in a row AND no good reading has arrived for
+// SENSOR_FAILSAFE_MS. While failing, reads are retried every
+// MIN_UPDATE_FREQUENCY seconds regardless of the configured interval.
+constexpr unsigned long SENSOR_FAILSAFE_MS = 60000;
+constexpr int SENSOR_FAILSAFE_MIN_FAILS = 3;
+
+// ---- Threshold limits (°C) ----
+constexpr float THRESHOLD_MIN = -40.0;
+constexpr float THRESHOLD_MAX = 80.0;
 
 // ---- Web Server Configuration ----
 constexpr int WEB_SERVER_PORT = 80;

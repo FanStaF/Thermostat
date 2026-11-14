@@ -1,12 +1,12 @@
 # Deployment Guide - Hostinger Production
 
-This guide covers deploying the Thermostat Monitor application to Hostinger (lotr.lindstromontheroad.com).
+This guide covers deploying the Thermostat Monitor application to Hostinger (lotr.lindstromsontheroad.com).
 
 ## Prerequisites
 
 - Hostinger hosting account with SSH access
 - GitHub repository set up
-- Domain configured: lotr.lindstromontheroad.com
+- Domain configured: lotr.lindstromsontheroad.com
 
 ## Step 1: Prepare Hostinger Environment
 
@@ -23,7 +23,7 @@ From Hostinger cPanel:
 ### 1.2 Connect via SSH
 
 ```bash
-ssh u491870959@lotr.lindstromontheroad.com -p 65002
+ssh u491870959@lotr.lindstromsontheroad.com -p 65002
 ```
 
 ### 1.3 Create Database
@@ -40,7 +40,7 @@ From Hostinger cPanel:
 ### 2.1 Navigate to web root
 
 ```bash
-cd /home/u491870959/domains/lotr.lindstromontheroad.com/public_html
+cd /home/u491870959/domains/lotr.lindstromsontheroad.com/public_html
 ```
 
 ### 2.2 Clone repository
@@ -135,7 +135,7 @@ Go to your GitHub repository:
 
 | Secret Name | Value | Example |
 |------------|-------|---------|
-| `SSH_HOST` | Your server hostname | `srv123.hostinger.com` or `lotr.lindstromontheroad.com` |
+| `SSH_HOST` | Your server hostname | `srv123.hostinger.com` or `lotr.lindstromsontheroad.com` |
 | `SSH_USERNAME` | Your SSH username | `u491870959` |
 | `SSH_PASSWORD` | Your SSH password | `your_ssh_password` |
 | `SSH_PORT` | SSH port (if not 22) | `65002` |
@@ -144,7 +144,7 @@ Go to your GitHub repository:
 
 On server via SSH:
 ```bash
-cd /home/u491870959/domains/lotr.lindstromontheroad.com/public_html
+cd /home/u491870959/domains/lotr.lindstromsontheroad.com/public_html
 chmod +x deploy.sh
 ```
 
@@ -168,7 +168,7 @@ This will trigger GitHub Actions automatically.
 
 ### 4.3 Verify deployment
 
-Visit: https://lotr.lindstromontheroad.com
+Visit: https://lotr.lindstromsontheroad.com
 
 You should see the login page.
 
@@ -179,7 +179,7 @@ You should see the login page.
 Edit `firmware/Thermostat/Credentials.h`:
 
 ```cpp
-#define API_URL "https://lotr.lindstromontheroad.com"
+#define API_URL "https://lotr.lindstromsontheroad.com"
 #define API_KEY "your_production_api_key_from_env"
 ```
 
@@ -196,7 +196,7 @@ arduino-cli upload -p /dev/ttyUSB0 --fqbn esp8266:esp8266:nodemcuv2 .
 ### Permission errors
 
 ```bash
-cd /home/u491870959/domains/lotr.lindstromontheroad.com/public_html
+cd /home/u491870959/domains/lotr.lindstromsontheroad.com/public_html
 chmod -R 755 storage bootstrap/cache
 chmod -R 775 storage/logs
 ```
@@ -221,7 +221,7 @@ Verify database credentials in cPanel and `.env` match exactly.
 ### Git permission errors
 
 ```bash
-git config --global --add safe.directory /home/u491870959/domains/lotr.lindstromontheroad.com/public_html
+git config --global --add safe.directory /home/u491870959/domains/lotr.lindstromsontheroad.com/public_html
 ```
 
 ### Composer errors
@@ -252,7 +252,7 @@ php artisan view:clear
 ### Manual deployment
 
 ```bash
-cd /home/u491870959/domains/lotr.lindstromontheroad.com/public_html
+cd /home/u491870959/domains/lotr.lindstromsontheroad.com/public_html
 bash deploy.sh
 ```
 
@@ -276,7 +276,7 @@ From cPanel:
 
 ## Post-Deployment
 
-1. Test login at https://lotr.lindstromontheroad.com/login
+1. Test login at https://lotr.lindstromsontheroad.com/login
 2. Register ESP8266 device
 3. Verify temperature readings
 4. Test relay controls

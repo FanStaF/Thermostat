@@ -1,6 +1,6 @@
 #include "RelayController.h"
 
-RelayController::RelayController() {
+RelayController::RelayController() : sensorFault(false) {
   // Initialize default values
   for (int i = 0; i < 4; i++) {
     relayStates[i] = false;
@@ -20,6 +20,13 @@ void RelayController::begin() {
   logger.addLog("All 4 relays initialized OFF");
 }
 
+void RelayController::setSensorFault(bool fault) {
+  if (fault == sensorFault) return;
+  sensorFault = fault;
+  logger.addLog(fault ? "SENSOR FAULT: AUTO relays forced OFF until readings recover"
+                      : "Sensor fault cleared, AUTO control resumed");
+}
+
 void RelayController::applyRelayLogic(float currentTemp) {
   for (int i = 0; i < 4; i++) {
     bool prevState = relayStates[i];
@@ -32,8 +39,11 @@ void RelayController::applyRelayLogic(float currentTemp) {
         relayStates[i] = false;
         break;
       case AUTO:
-        // For MANUAL_ONLY type, AUTO behaves like MANUAL_OFF
-        if (relayTypes[i] == MANUAL_ONLY) {
+      default: {
+        // For MANUAL_ONLY type, AUTO behaves like MANUAL_OFF. Fail safe: with
+        // no trustworthy temperature, AUTO relays are OFF — hardware override
+        // switches are the force-on path, not the firmware.
+        if (relayTypes[i] == MANUAL_ONLY || sensorFault || isnan(currentTemp)) {
           relayStates[i] = false;
           break;
         }
@@ -53,13 +63,16 @@ void RelayController::applyRelayLogic(float currentTemp) {
         }
         // Else maintain current state (hysteresis)
         break;
+      }
     }
 
     digitalWrite(RELAY_PINS[i], relayStates[i] ? LOW : HIGH); // Active-LOW
 
     if (prevState != relayStates[i]) {
-      logger.addLog("Relay " + String(i+1) + " -> " + String(relayStates[i] ? "ON" : "OFF") +
-                    " @ " + String(currentTemp, 1) + "C");
+      String msg = "Relay " + String(i + 1) + " -> " + (relayStates[i] ? "ON" : "OFF");
+      if (isnan(currentTemp)) msg += " (no valid temp)";
+      else msg += " @ " + String(currentTemp, 1) + "C";
+      logger.addLog(msg);
     }
   }
 }
@@ -91,23 +104,55 @@ float RelayController::getTempOff(int index) const {
 }
 
 // Setters
-void RelayController::setRelayMode(int index, Mode mode) {
-  if (index >= 0 && index < 4) {
-    relayModes[index] = mode;
+bool RelayController::setRelayMode(int index, Mode mode) {
+  if (index < 0 || index >= 4) return false;
+  if (mode != AUTO && mode != MANUAL_ON && mode != MANUAL_OFF) return false;
+  relayModes[index] = mode;
+  return true;
+}
+
+bool RelayController::setRelayType(int index, RelayType type) {
+  if (index < 0 || index >= 4) return false;
+  if (type != HEATING && type != COOLING && type != GENERIC && type != MANUAL_ONLY) return false;
+  relayTypes[index] = type;
+  if (!thresholdsOrdered(type, tempOn[index], tempOff[index])) {
+    float t = tempOn[index];
+    tempOn[index] = tempOff[index];
+    tempOff[index] = t;
+    logger.addLog("Relay " + String(index + 1) + ": ON/OFF swapped to suit " + typeToString(type));
+  }
+  return true;
+}
+
+bool RelayController::isValidThreshold(float t) {
+  return isfinite(t) && t >= THRESHOLD_MIN && t <= THRESHOLD_MAX;
+}
+
+bool RelayController::thresholdsOrdered(RelayType type, float tOn, float tOff) {
+  switch (type) {
+    case HEATING: return tOn < tOff;
+    case COOLING:
+    case GENERIC: return tOn > tOff;
+    default:      return true;  // MANUAL_ONLY ignores thresholds
   }
 }
 
-void RelayController::setRelayType(int index, RelayType type) {
-  if (index >= 0 && index < 4) {
-    relayTypes[index] = type;
+const char* RelayController::thresholdRule(RelayType type) {
+  switch (type) {
+    case HEATING: return "for heating, ON must be below OFF";
+    case COOLING:
+    case GENERIC: return "for cooling, ON must be above OFF";
+    default:      return "";
   }
 }
 
-void RelayController::setTempThresholds(int index, float tOn, float tOff) {
-  if (index >= 0 && index < 4) {
-    tempOn[index] = tOn;
-    tempOff[index] = tOff;
-  }
+bool RelayController::setTempThresholds(int index, float tOn, float tOff) {
+  if (index < 0 || index >= 4) return false;
+  if (!isValidThreshold(tOn) || !isValidThreshold(tOff)) return false;
+  if (!thresholdsOrdered(relayTypes[index], tOn, tOff)) return false;
+  tempOn[index] = tOn;
+  tempOff[index] = tOff;
+  return true;
 }
 
 // Utility
@@ -128,4 +173,19 @@ String RelayController::typeToString(RelayType t) {
     case MANUAL_ONLY: return "MANUAL_ONLY";
   }
   return "HEATING";
+}
+
+bool RelayController::parseMode(const String& s, Mode& out) {
+  if (s == "AUTO") { out = AUTO; return true; }
+  if (s == "ON" || s == "MANUAL_ON") { out = MANUAL_ON; return true; }
+  if (s == "OFF" || s == "MANUAL_OFF") { out = MANUAL_OFF; return true; }
+  return false;
+}
+
+bool RelayController::parseType(const String& s, RelayType& out) {
+  if (s == "HEATING") { out = HEATING; return true; }
+  if (s == "COOLING") { out = COOLING; return true; }
+  if (s == "GENERIC") { out = GENERIC; return true; }
+  if (s == "MANUAL_ONLY") { out = MANUAL_ONLY; return true; }
+  return false;
 }

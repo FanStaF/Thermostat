@@ -13,8 +13,8 @@ if [ $? -eq 0 ]; then
     echo "✓ Compilation successful!"
     echo ""
     echo "To upload:"
-    echo "  Via OTA:  ./build.sh upload"
-    echo "  Via USB:  ./build.sh upload-usb"
+    echo "  Via OTA:  ./upload.sh            (or ./upload.sh ota <ip>)"
+    echo "  Via USB:  ./upload.sh usb [/dev/ttyUSB0]"
 else
     echo ""
     echo "✗ Compilation failed!"

@@ -39,9 +39,9 @@ Route::middleware(['auth:sanctum', 'throttle:120,1', 'device.scope'])->group(fun
     Route::get('/devices/{device}/commands', [CommandController::class, 'index']);
 });
 
-// User-facing API (Sanctum + session for the SPA, no per-device scope check —
-// authorization is handled in-controller via canAccessDevice).
-Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
+// User-facing API (user tokens only — device tokens are rejected by user.only;
+// per-device authorization is handled in-controller via canAccessDevice).
+Route::middleware(['auth:sanctum', 'user.only', 'throttle:120,1'])->group(function () {
     Route::get('/devices', [DeviceController::class, 'index']);
     Route::patch('/devices/{device}', [DeviceController::class, 'update']);
 

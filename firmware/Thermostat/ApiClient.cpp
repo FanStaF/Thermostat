@@ -85,6 +85,11 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
   http.addHeader("X-API-Key", API_KEY);
+  // An already-registered device must prove it holds its current token to
+  // re-register (the backend refuses re-registration by MAC alone).
+  if (authToken.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + authToken);
+  }
 
   int httpCode = http.POST(jsonPayload);
 
@@ -109,20 +114,29 @@ bool ApiClient::registerDevice(const String& hostname, const String& macAddress,
       logger.addLog("Registration failed: Invalid response");
     }
   } else {
-    logger.addLog("Registration failed: HTTP " + String(httpCode));
+    if (httpCode == 403 || httpCode == 409) {
+      logger.addLog("Registration refused (HTTP " + String(httpCode) +
+                    "): ask an admin to allow re-registration on the dashboard");
+    } else {
+      logger.addLog("Registration failed: HTTP " + String(httpCode));
+    }
     http.end();
   }
 
   return false;
 }
 
-bool ApiClient::sendHeartbeat() {
+bool ApiClient::sendHeartbeat(bool sensorFault, long secondsSinceGoodReading) {
   if (deviceId <= 0) {
     return false;
   }
 
   JsonDocument doc;
   doc["ip_address"] = WiFi.localIP().toString();
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["sensor_fault"] = sensorFault;
+  if (secondsSinceGoodReading >= 0) doc["seconds_since_good_reading"] = secondsSinceGoodReading;
+  else doc["seconds_since_good_reading"] = nullptr;
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);
