@@ -143,6 +143,19 @@ bool ApiClient::sendHeartbeat(bool sensorFault, long secondsSinceGoodReading) {
   if (secondsSinceGoodReading >= 0) doc["seconds_since_good_reading"] = secondsSinceGoodReading;
   else doc["seconds_since_good_reading"] = nullptr;
 
+  // Device health: lets the dashboard show power problems (brownout
+  // resets), weak WiFi, memory pressure or an upload backlog remotely.
+  JsonObject h = doc["health"].to<JsonObject>();
+  h["boot_count"] = bootCount;
+  h["reset_reason"] = ESP.getResetReason();
+  h["uptime_s"] = millis() / 1000;
+  h["wifi_ssid"] = WiFi.SSID();
+  h["rssi"] = WiFi.RSSI();
+  h["free_heap"] = ESP.getFreeHeap();
+  h["max_free_block"] = ESP.getMaxFreeBlockSize();
+  h["heap_frag"] = ESP.getHeapFragmentation();
+  h["outbox_bytes"] = hasOutbox() ? outboxSize : 0;
+
   String jsonPayload;
   serializeJson(doc, jsonPayload);
 
@@ -150,7 +163,13 @@ bool ApiClient::sendHeartbeat(bool sensorFault, long secondsSinceGoodReading) {
   String endpoint = "/api/devices/" + String(deviceId) + "/heartbeat";
 
   bool ok = makePostRequest(endpoint, jsonPayload, response);
-  if (ok) notePendingCommands(response);
+  if (ok) {
+    notePendingCommands(response);
+    JsonDocument reply;
+    if (!deserializeJson(reply, response) && reply["utc_offset"].is<int>()) {
+      logger.setUtcOffset(reply["utc_offset"].as<int>());
+    }
+  }
   return ok;
 }
 

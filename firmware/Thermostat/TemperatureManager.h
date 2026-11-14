@@ -14,8 +14,8 @@ struct TempReadResult {
   float temp;                  // valid only when ok
   uint8_t attemptsTaken;       // 1 if first try succeeded, 2 if a retry happened
   const char* lastFailReason;  // nullptr if no attempt failed; otherwise
-                               // "disconnect", "out-of-range", "power-on-reset"
-                               // or "inconsistent"
+                               // "not-found", "no-response" (no reply / bad CRC),
+                               // "out-of-range", "power-on-reset" or "inconsistent"
 };
 
 // Reads are non-blocking: startReading() kicks off a conversion and poll()
@@ -66,6 +66,12 @@ private:
   uint8_t sampleIdx;
   float samples[TEMP_NUM_SAMPLES];
   const char* lastReason;
+
+  // Sensor address cached at each bus scan: reads talk to it directly
+  // instead of re-searching the bus every time (getTempCByIndex does a full
+  // ROM search per call, the most timing-sensitive bus operation).
+  DeviceAddress sensorAddr;
+  bool haveAddr = false;
 
   long logFileSize;        // bytes, -1 = not yet known
   int appendsSinceInfo;    // appends since the last free-space check

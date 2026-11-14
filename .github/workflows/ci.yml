@@ -1,0 +1,80 @@
+name: CI
+
+# Runs on every push and pull request: backend test suite + firmware compile.
+# Deployment stays manual (deploy.yml).
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, sqlite3
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: backend/vendor
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run tests
+        run: php artisan test
+
+  firmware:
+    name: Firmware build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: firmware/Thermostat
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Cache Arduino cores and libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15
+            ~/Arduino/libraries
+          key: arduino-esp8266-3.1.2-libs-v1
+
+      - name: Install ESP8266 core and libraries
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp8266:esp8266@3.1.2
+          arduino-cli lib install "OneWire@2.3.8" "DallasTemperature@4.0.6" "ArduinoJson@7.4.3"
+
+      - name: Create placeholder credentials
+        # Credentials.h is gitignored; CI only needs it to compile.
+        run: |
+          sed -e 's/#define OTA_PASSWORD ""/#define OTA_PASSWORD "ci-placeholder-password"/' \
+              Credentials.h.example > Credentials.h
+
+      - name: Compile
+        # Same board + memory layout (FQBN) the build/upload scripts use.
+        run: |
+          FQBN=$(sed -n 's/^FQBN="\(.*\)"/\1/p' build.sh)
+          echo "FQBN: $FQBN"
+          arduino-cli compile --fqbn "$FQBN" --warnings default .

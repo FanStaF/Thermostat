@@ -44,6 +44,18 @@ void setup() {
 
   // Initialize filesystem and load configuration
   configManager.begin();
+
+  // Boot counter (reported in heartbeats; each restart is one flash write).
+  {
+    uint32_t boots = 0;
+    File bf = LittleFS.open("/boot_count.txt", "r");
+    if (bf) { boots = bf.readString().toInt(); bf.close(); }
+    boots++;
+    bf = LittleFS.open("/boot_count.txt", "w");
+    if (bf) { bf.print(boots); bf.close(); }
+    apiClient.setBootCount(boots);
+    logger.addLog("Boot #" + String(boots) + ", reset reason: " + ESP.getResetReason());
+  }
   configManager.loadSettings(updateFrequency, useFahrenheit);
 
   // Initialize relay controller

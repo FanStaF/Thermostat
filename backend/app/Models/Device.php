@@ -21,12 +21,14 @@ class Device extends Authenticatable
         'sensor_fault',
         'last_good_reading_at',
         'reregistration_allowed',
+        'health',
     ];
 
     protected $casts = [
         'last_seen_at' => 'datetime',
         'sensor_fault' => 'boolean',
         'reregistration_allowed' => 'boolean',
+        'health' => 'array',
         'last_good_reading_at' => 'datetime',
     ];
 
@@ -96,6 +98,24 @@ class Device extends Authenticatable
     public function pendingCommandCount(): int
     {
         return $this->commands()->where('status', 'pending')->count();
+    }
+
+    public function boots(): HasMany
+    {
+        return $this->hasMany(DeviceBoot::class);
+    }
+
+    /**
+     * Seconds east of UTC for the device's configured timezone right now
+     * (DST-aware). Sent to the firmware so its logs show local time.
+     */
+    public function utcOffsetSeconds(): int
+    {
+        try {
+            return now()->setTimezone($this->settings?->timezone ?: 'UTC')->getOffset();
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     public function temperatureReadings(): HasMany

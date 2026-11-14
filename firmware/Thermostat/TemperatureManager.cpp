@@ -19,18 +19,20 @@ void TemperatureManager::begin() {
 void TemperatureManager::rescanBus() {
   sensors.begin();
   sensors.setWaitForConversion(false);  // we poll instead of blocking ~750ms
+  haveAddr = sensors.getDeviceCount() > 0 && sensors.getAddress(sensorAddr, 0);
   uint8_t res = sensors.getResolution();
   conversionMs = sensors.millisToWaitForConversion(res ? res : 12);
 }
 
 void TemperatureManager::requestSample() {
-  sensors.requestTemperatures();
+  if (haveAddr) sensors.requestTemperaturesByAddress(sensorAddr);
+  else sensors.requestTemperatures();
   stateStart = millis();
   state = CONVERTING;
 }
 
 void TemperatureManager::startReading() {
-  if (sensors.getDeviceCount() == 0) {
+  if (!haveAddr) {
     rescanBus();
     if (sensors.getDeviceCount() > 0) logger.addLog("DS18B20 sensor found on rescan");
   }
@@ -42,7 +44,7 @@ void TemperatureManager::startReading() {
 
 void TemperatureManager::failAttempt(const char* reason, TempReadResult& out, bool& done) {
   lastReason = reason;
-  if (strcmp(reason, "disconnect") == 0) rescanBus();
+  if (strcmp(reason, "not-found") == 0 || strcmp(reason, "no-response") == 0) rescanBus();
   if (attempt == 0) {
     // One retry after a short pause.
     attempt = 1;
@@ -72,9 +74,15 @@ bool TemperatureManager::poll(TempReadResult& out) {
       // Small margin over the datasheet conversion time.
       if (now - stateStart < (unsigned long)conversionMs + 10) return false;
 
-      float s = sensors.getTempCByIndex(0);
+      if (!haveAddr) {
+        failAttempt("not-found", out, done);
+        return done;
+      }
+      // Up to 3 scratchpad reads: a single corrupted transfer (bad CRC) is
+      // retried instead of failing the whole sample.
+      float s = sensors.getTempC(sensorAddr, 2);
       if (s == DEVICE_DISCONNECTED_C) {
-        failAttempt("disconnect", out, done);
+        failAttempt("no-response", out, done);
       } else if (s == TEMP_POWER_ON_VALUE) {
         failAttempt("power-on-reset", out, done);
       } else if (s < TEMP_MIN_VALID || s >= TEMP_MAX_VALID) {

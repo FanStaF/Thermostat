@@ -61,6 +61,45 @@
     </div>
 </div>
 
+@if($device->health)
+@php
+    $h = $device->health;
+    $rssi = $h['rssi'] ?? null;
+    $signal = $rssi === null ? 'Unknown' : ($rssi >= -60 ? 'Strong' : ($rssi >= -70 ? 'Good' : ($rssi >= -80 ? 'Weak' : 'Very weak')));
+    $uptime = (int) ($h['uptime_s'] ?? 0);
+    $uptimeText = $uptime >= 86400 ? intdiv($uptime, 86400) . 'd ' . intdiv($uptime % 86400, 3600) . 'h'
+        : ($uptime >= 3600 ? intdiv($uptime, 3600) . 'h ' . intdiv($uptime % 3600, 60) . 'm' : intdiv($uptime, 60) . 'm');
+    $outbox = (int) ($h['outbox_bytes'] ?? 0);
+@endphp
+<div class="card">
+    <div class="card-title">Device Health</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; font-size: 14px;">
+        <div><strong>Uptime:</strong> {{ $uptimeText }}</div>
+        <div><strong>Restarts:</strong>
+            <span style="{{ $restarts24h >= 3 ? 'color: #e74c3c; font-weight: bold;' : '' }}">{{ $restarts24h }} in 24h</span>, {{ $restarts7d }} in 7d
+        </div>
+        <div><strong>WiFi:</strong> {{ $h['wifi_ssid'] ?? '?' }} &middot; {{ $signal }}{{ $rssi !== null ? " ({$rssi} dBm)" : '' }}</div>
+        <div><strong>Free memory:</strong> {{ number_format(($h['free_heap'] ?? 0) / 1024, 1) }} KB
+            (largest block {{ number_format(($h['max_free_block'] ?? 0) / 1024, 1) }} KB)</div>
+        <div><strong>Upload backlog:</strong>
+            <span style="{{ $outbox > 2048 ? 'color: #e67e22; font-weight: bold;' : '' }}">{{ $outbox ? '~' . max(1, intdiv($outbox, 20)) . ' readings' : 'none' }}</span>
+        </div>
+        <div><strong>Last report:</strong> {{ isset($h['reported_at']) ? \Carbon\Carbon::parse($h['reported_at'])->diffForHumans() : '?' }}</div>
+    </div>
+    @if($recentBoots->isNotEmpty())
+        <div style="margin-top: 12px; font-size: 13px; color: #555;">
+            <strong>Recent restarts</strong>
+            <ul style="margin: 6px 0 0 18px; padding: 0;">
+                @foreach($recentBoots as $boot)
+                    <li>{{ $boot->booted_at->setTimezone($device->settings?->timezone ?: 'UTC')->format('M j, H:i') }}
+                        &middot; #{{ $boot->boot_count }} &middot; {{ $boot->reason_label }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+</div>
+@endif
+
 <div class="card">
     <div style="text-align: center; padding: 20px;">
         {{-- Always rendered so refreshData() can show/hide it live. --}}

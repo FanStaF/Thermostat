@@ -100,6 +100,16 @@ class DeviceController extends Controller
             // Capped at the firmware's millis() wrap (~49.7 days) so the
             // derived timestamp always fits the TIMESTAMP column.
             'seconds_since_good_reading' => 'nullable|integer|min:0|max:4294967',
+            'health' => 'nullable|array',
+            'health.boot_count' => 'nullable|integer|min:0',
+            'health.reset_reason' => 'nullable|string|max:100',
+            'health.uptime_s' => 'nullable|integer|min:0|max:4294967',
+            'health.wifi_ssid' => 'nullable|string|max:32',
+            'health.rssi' => 'nullable|integer|between:-127,0',
+            'health.free_heap' => 'nullable|integer|min:0',
+            'health.max_free_block' => 'nullable|integer|min:0',
+            'health.heap_frag' => 'nullable|integer|between:0,100',
+            'health.outbox_bytes' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -128,11 +138,32 @@ class DeviceController extends Controller
             $update['last_good_reading_at'] = $seconds === null ? null : now()->subSeconds((int) $seconds);
         }
 
+        // Health snapshot (firmware >= 2.6.0). A new boot_count means the
+        // device restarted since the last heartbeat: record it with its
+        // reason and the time it booted.
+        if (!empty($validated['health'])) {
+            $health = array_intersect_key($validated['health'], array_flip([
+                'boot_count', 'reset_reason', 'uptime_s', 'wifi_ssid', 'rssi',
+                'free_heap', 'max_free_block', 'heap_frag', 'outbox_bytes',
+            ]));
+            $bootCount = $health['boot_count'] ?? null;
+            $previousBoot = $device->health['boot_count'] ?? null;
+            if ($bootCount !== null && $bootCount !== $previousBoot) {
+                $device->boots()->create([
+                    'boot_count' => $bootCount,
+                    'reset_reason' => $health['reset_reason'] ?? null,
+                    'booted_at' => now()->subSeconds((int) ($health['uptime_s'] ?? 0)),
+                ]);
+            }
+            $update['health'] = $health + ['reported_at' => now()->toIso8601String()];
+        }
+
         $device->update($update);
 
         return response()->json([
             'message' => 'Heartbeat updated',
             'pending_commands' => $device->pendingCommandCount(),
+            'utc_offset' => $device->utcOffsetSeconds(),
         ]);
     }
 

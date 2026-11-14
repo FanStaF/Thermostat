@@ -28,6 +28,9 @@ public:
 
   // True when a server reply said commands are waiting (fetch them now).
   bool commandsWaiting() const { return pendingFlag; }
+
+  // Reported in heartbeats (device health panel on the dashboard).
+  void setBootCount(uint32_t n) { bootCount = n; }
   // True once the server has ever reported pending_commands (newer backend);
   // until then the firmware keeps polling for commands every 30s.
   bool serverSignalsCommands() const { return serverReportsPending; }
@@ -85,6 +88,7 @@ private:
   bool pendingFlag;
   bool serverReportsPending;
   int lastHttpCode;
+  uint32_t bootCount = 0;
   bool batchUnsupported;     // old backend: no /temperature/batch endpoint
   unsigned long batchUnsupportedSince;  // retry batch after a while (backend may be upgraded)
   bool sendNewestQueuedReadingLegacy();

@@ -50,8 +50,11 @@ loadForm();setInterval(refreshStatus,10000);
 // synced, or a compact uptime like "+1h23m" / "+5m25s" / "+12s" before that.
 static String formatLogTime(const LogEntry& entry) {
   if (entry.epoch >= 1000000000) {
+    // Shown in the device's local time once the server has told us the
+    // offset (heartbeat reply); UTC until then.
     struct tm tinfo;
-    gmtime_r(&entry.epoch, &tinfo);
+    time_t local = entry.epoch + logger.getUtcOffset();
+    gmtime_r(&local, &tinfo);
     char buf[12];
     snprintf(buf, sizeof(buf), "%02d:%02d:%02d",
              tinfo.tm_hour, tinfo.tm_min, tinfo.tm_sec);

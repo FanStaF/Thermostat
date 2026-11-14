@@ -16,7 +16,7 @@ constexpr size_t MAX_LOG_MESSAGE_LEN = 160; // longer messages are truncated
 
 // ---- API Configuration ----
 // API_URL is defined in Credentials.h
-#define FIRMWARE_VERSION "2.5.2"
+#define FIRMWARE_VERSION "2.6.1"
 constexpr int API_HEARTBEAT_INTERVAL = 30000;  // ms — replies say whether commands are waiting
 constexpr int API_COMMAND_POLL_INTERVAL = 30000;          // ms, used until the server reports pending_commands
 constexpr int API_COMMAND_POLL_FALLBACK = 300000;         // ms, safety poll once it does (5 min)
@@ -60,6 +60,13 @@ constexpr int TEMP_RETRY_DELAY = 200;       // ms before retry
 // MIN_UPDATE_FREQUENCY seconds regardless of the configured interval.
 constexpr unsigned long SENSOR_FAILSAFE_MS = 60000;
 constexpr int SENSOR_FAILSAFE_MIN_FAILS = 3;
+
+// ---- Relay protection ----
+// AUTO switching never flips a relay sooner than this after its last change,
+// so a setpoint sitting right at room temperature can't make it chatter.
+// Manual modes and the sensor fail-safe (forcing OFF) act immediately.
+constexpr unsigned long RELAY_MIN_ON_MS = 120000;   // 2 min
+constexpr unsigned long RELAY_MIN_OFF_MS = 120000;  // 2 min
 
 // ---- Threshold limits (°C) ----
 constexpr float THRESHOLD_MIN = -40.0;

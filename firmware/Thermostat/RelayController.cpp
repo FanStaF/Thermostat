@@ -8,6 +8,8 @@ RelayController::RelayController() : sensorFault(false) {
     relayTypes[i] = HEATING;  // Default to heating for floor heat
     tempOn[i] = DEFAULT_TEMP_ON;
     tempOff[i] = DEFAULT_TEMP_OFF;
+    lastChangeMs[i] = 0;
+    everChanged[i] = false;
   }
 }
 
@@ -51,17 +53,28 @@ void RelayController::applyRelayLogic(float currentTemp) {
         // Apply temperature-based logic depending on relay type
         // Use small epsilon for floating point comparison to avoid edge flickering
         const float epsilon = 0.05;  // ~0.1°F tolerance
+        bool want = relayStates[i];
 
         if (relayTypes[i] == HEATING) {
           // Heating: ON when cold, OFF when warm
-          if (currentTemp < tempOn[i] - epsilon) relayStates[i] = true;
-          else if (currentTemp > tempOff[i] + epsilon) relayStates[i] = false;
+          if (currentTemp < tempOn[i] - epsilon) want = true;
+          else if (currentTemp > tempOff[i] + epsilon) want = false;
         } else {
           // Cooling/Generic: ON when hot, OFF when cold
-          if (currentTemp > tempOn[i] + epsilon) relayStates[i] = true;
-          else if (currentTemp < tempOff[i] - epsilon) relayStates[i] = false;
+          if (currentTemp > tempOn[i] + epsilon) want = true;
+          else if (currentTemp < tempOff[i] - epsilon) want = false;
         }
         // Else maintain current state (hysteresis)
+
+        // Minimum on/off time: hold the current state until it has lasted
+        // long enough. Re-evaluated on every reading, so it switches as soon
+        // as the hold expires if the condition still applies.
+        if (want != relayStates[i] && everChanged[i]) {
+          unsigned long held = millis() - lastChangeMs[i];
+          unsigned long minHold = relayStates[i] ? RELAY_MIN_ON_MS : RELAY_MIN_OFF_MS;
+          if (held < minHold) want = relayStates[i];
+        }
+        relayStates[i] = want;
         break;
       }
     }
@@ -69,6 +82,8 @@ void RelayController::applyRelayLogic(float currentTemp) {
     digitalWrite(RELAY_PINS[i], relayStates[i] ? LOW : HIGH); // Active-LOW
 
     if (prevState != relayStates[i]) {
+      lastChangeMs[i] = millis();
+      everChanged[i] = true;
       String msg = "Relay " + String(i + 1) + " -> " + (relayStates[i] ? "ON" : "OFF");
       if (isnan(currentTemp)) msg += " (no valid temp)";
       else msg += " @ " + String(currentTemp, 1) + "C";
@@ -107,6 +122,7 @@ float RelayController::getTempOff(int index) const {
 bool RelayController::setRelayMode(int index, Mode mode) {
   if (index < 0 || index >= 4) return false;
   if (mode != AUTO && mode != MANUAL_ON && mode != MANUAL_OFF) return false;
+  if (relayModes[index] != mode) everChanged[index] = false;  // user action: no hold
   relayModes[index] = mode;
   return true;
 }
@@ -150,6 +166,7 @@ bool RelayController::setTempThresholds(int index, float tOn, float tOff) {
   if (index < 0 || index >= 4) return false;
   if (!isValidThreshold(tOn) || !isValidThreshold(tOff)) return false;
   if (!thresholdsOrdered(relayTypes[index], tOn, tOff)) return false;
+  everChanged[index] = false;  // user action: apply new thresholds immediately
   tempOn[index] = tOn;
   tempOff[index] = tOff;
   return true;

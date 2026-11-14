@@ -57,6 +57,8 @@ private:
   float tempOn[4];
   float tempOff[4];
   bool sensorFault;
+  unsigned long lastChangeMs[4];  // millis() of the last state change
+  bool everChanged[4];            // first AUTO decision is never delayed
 };
 
 #endif // RELAY_CONTROLLER_H

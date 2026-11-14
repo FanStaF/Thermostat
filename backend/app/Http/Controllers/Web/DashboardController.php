@@ -106,7 +106,14 @@ class DashboardController extends Controller
             ->latest('recorded_at')
             ->first();
 
-        return view('dashboard.show', compact('device', 'readings', 'range', 'latestReading'));
+        // Device health panel: recent restarts and how often they happen.
+        $recentBoots = $device->boots()->latest('booted_at')->limit(5)->get();
+        $restarts24h = $device->boots()->where('booted_at', '>=', now()->subDay())->count();
+        $restarts7d = $device->boots()->where('booted_at', '>=', now()->subDays(7))->count();
+
+        return view('dashboard.show', compact(
+            'device', 'readings', 'range', 'latestReading', 'recentBoots', 'restarts24h', 'restarts7d'
+        ));
     }
 
     /**
