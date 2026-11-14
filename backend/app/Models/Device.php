@@ -67,6 +67,37 @@ class Device extends Authenticatable
             . $since . ' The temperature shown is stale.';
     }
 
+    /**
+     * Commands waiting for the device. Returned in device-facing responses so
+     * the firmware fetches them right away instead of on a slow poll.
+     */
+    /**
+     * Changes whenever there is something new to display (a new reading, a
+     * relay state change, or a fault change). Dashboards poll this and skip
+     * re-rendering when it hasn't changed. last_seen_at is deliberately not
+     * part of it: the page counts "last seen" up locally between polls.
+     */
+    public function dataVersion(): string
+    {
+        $readingId = $this->temperatureReadings()->latest('recorded_at')->value('id') ?? 0;
+        $relayStateId = RelayState::whereIn('relay_id', $this->relays()->pluck('id'))->max('id') ?? 0;
+
+        return $readingId . '-' . $relayStateId . '-' . ($this->has_active_sensor_fault ? 1 : 0);
+    }
+
+    /**
+     * Seconds between device readings, used as the dashboard poll interval.
+     */
+    public function updateFrequency(): int
+    {
+        return (int) ($this->settings?->update_frequency ?? 5);
+    }
+
+    public function pendingCommandCount(): int
+    {
+        return $this->commands()->where('status', 'pending')->count();
+    }
+
     public function temperatureReadings(): HasMany
     {
         return $this->hasMany(TemperatureReading::class);

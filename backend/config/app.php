@@ -79,6 +79,9 @@ return [
 
     'timezone' => 'UTC',
 
+    // Reject device-API calls over plain HTTP (see RequireHttpsForApi).
+    'api_require_https' => (bool) env('API_REQUIRE_HTTPS', false),
+
     /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration

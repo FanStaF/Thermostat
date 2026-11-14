@@ -334,7 +334,7 @@ void loop() {
       Serial.println();
 
       tempManager.logTemperature(r.temp, 0);
-      apiClient.markTempDirty();
+      apiClient.enqueueReading(r.temp, 0);
     } else {
       consecutiveSensorFails++;
       String msg = String("Sensor read failed (") + (r.lastFailReason ? r.lastFailReason : "unknown") + ")";
@@ -370,10 +370,12 @@ void loop() {
     tryRegister();
   } else if (apiClient.isRegistered() && WiFi.status() == WL_CONNECTED) {
     static bool lastReportedFault = false;
-    if (apiClient.isTempDirty() && tempManager.hasValidTemp()) {
-      if (apiClient.sendTemperatureReading(tempManager.getCurrentTemp(), 0)) {
-        apiClient.clearTempDirty();
-      }
+    // Queued readings first (batched, with their measurement times), but
+    // throttled so a long backlog doesn't starve relay sync and commands.
+    static unsigned long lastOutboxAttempt = 0;
+    if (apiClient.hasOutbox() && now - lastOutboxAttempt >= 2000) {
+      lastOutboxAttempt = now;
+      apiClient.sendOutboxBatch();
     } else {
       int dirtyRelay = apiClient.nextDirtyRelay();
       if (dirtyRelay >= 0) {
@@ -409,7 +411,12 @@ void loop() {
           processCommand(*cmd);
           apiClient.popNextCommand();
         }
-      } else if (now - lastCommandPoll >= API_COMMAND_POLL_INTERVAL) {
+      } else if (apiClient.commandsWaiting() ||
+                 now - lastCommandPoll >= (unsigned long)(apiClient.serverSignalsCommands()
+                                                          ? API_COMMAND_POLL_FALLBACK
+                                                          : API_COMMAND_POLL_INTERVAL)) {
+        // Newer backends say in each reply whether commands are waiting, so
+        // the regular poll drops to a slow safety net.
         lastCommandPoll = now;
         apiClient.pollCommands();
       }

@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin' => \App\Http\Middleware\EnsureUserIsAdmin::class,
             'device.scope' => \App\Http\Middleware\EnsureDeviceTokenMatchesRoute::class,
             'user.only' => \App\Http\Middleware\EnsureAuthenticatedUser::class,
+            'https.api' => \App\Http\Middleware\RequireHttpsForApi::class,
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {

@@ -1,4 +1,5 @@
 #include "TemperatureManager.h"
+#include "FileUtil.h"
 
 TemperatureManager::TemperatureManager()
   : oneWire(ONE_WIRE_BUS), sensors(&oneWire), currentTemp(NAN),
@@ -135,31 +136,10 @@ void TemperatureManager::trimLogIfNeeded() {
     return;
   }
 
-  // Keep only the newest ~LOG_FILE_KEEP_BYTES, starting at a line boundary.
-  in.seek(size - LOG_FILE_KEEP_BYTES);
-  in.readStringUntil('\n');
-
-  File out = LittleFS.open(LOG_TMP_FILE, "w");
-  bool ok = (bool)out;
-  if (ok) {
-    uint8_t buf[256];
-    while (in.available()) {
-      size_t n = in.read(buf, sizeof(buf));
-      if (n == 0 || out.write(buf, n) != n) { ok = false; break; }
-      yield();
-    }
-    out.close();
-  }
   in.close();
 
-  if (ok) {
-    LittleFS.remove(LOG_FILE);
-    ok = LittleFS.rename(LOG_TMP_FILE, LOG_FILE);
-  }
-  if (!ok) {
-    // Couldn't trim safely; drop the history rather than fill the filesystem.
-    LittleFS.remove(LOG_TMP_FILE);
-    LittleFS.remove(LOG_FILE);
+  // Keep only the newest ~LOG_FILE_KEEP_BYTES, starting at a line boundary.
+  if (!FileUtil::keepTail(LOG_FILE, LOG_TMP_FILE, size - LOG_FILE_KEEP_BYTES, true)) {
     logger.addLog("WARN: Temp log trim failed, history cleared");
   }
   logFileSize = -1;  // re-stat on next append

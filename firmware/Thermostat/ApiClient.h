@@ -17,6 +17,20 @@ public:
   // secondsSinceGoodReading < 0 means "never had a good reading".
   bool sendHeartbeat(bool sensorFault, long secondsSinceGoodReading);
   bool sendTemperatureReading(float temperature, int sensorId = 0);
+
+  // ---- Reading outbox (flash-backed) ----
+  // Queue a reading with its measurement time; uploaded in batches and
+  // deleted once the server confirms. Survives outages and reboots.
+  void enqueueReading(float temperature, int sensorId = 0);
+  bool hasOutbox();
+  // Upload up to OUTBOX_BATCH queued readings. Returns true on progress.
+  bool sendOutboxBatch();
+
+  // True when a server reply said commands are waiting (fetch them now).
+  bool commandsWaiting() const { return pendingFlag; }
+  // True once the server has ever reported pending_commands (newer backend);
+  // until then the firmware keeps polling for commands every 30s.
+  bool serverSignalsCommands() const { return serverReportsPending; }
   bool sendRelayState(int relayNumber, bool state, const String& mode, float tempOn, float tempOff, const String& name = "");
   bool pollCommands();
   bool updateCommandStatus(int commandId, const String& status, const String& result = "");
@@ -40,9 +54,6 @@ public:
   void markRelayDirty(int relayIdx);
   void clearRelayDirty(int relayIdx);
   int  nextDirtyRelay() const;             // 0..3 of next dirty relay, or -1
-  void markTempDirty();
-  void clearTempDirty();
-  bool isTempDirty() const { return tempDirty; }
 
   bool hasPendingCommands() const { return nextCommandIdx < pendingCommandCount; }
   Command* peekNextCommand();
@@ -69,7 +80,18 @@ private:
   int nextCommandIdx;
 
   bool relayDirty[4];
-  bool tempDirty;
+  long outboxSize;           // bytes, -1 = not yet known
+  uint32_t bootId;           // tags clock-less readings from this boot
+  bool pendingFlag;
+  bool serverReportsPending;
+  int lastHttpCode;
+  bool batchUnsupported;     // old backend: no /temperature/batch endpoint
+  unsigned long batchUnsupportedSince;  // retry batch after a while (backend may be upgraded)
+  bool sendNewestQueuedReadingLegacy();
+
+  void notePendingCommands(const String& response);
+  bool resolveOutboxLine(const String& line, uint32_t nowEpoch, long& epochOut,
+                         float& tempOut, int& sensorOut, bool& waitForClock);
 
   struct RelaySnapshot {
     bool valid;
